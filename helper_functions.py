@@ -5,138 +5,302 @@ import torch.nn as nn
 import numpy as np
 import torch.optim as optim
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 # spiking packages
 import snntorch as snn
 from snntorch import utils
 from torchvision import transforms
-from snntorch import surrogate
+import snntorch.surrogate as surrogate
 from snntorch import functional
+import snntorch.spikeplot as splt
 
 from collections import namedtuple, deque
 class ActorCriticSNN(torch.nn.Module):
-    def __init__(self, num_inputs, action_space, value_window):
+    def __init__(self, num_inputs, action_space, value_window, inp_min = torch.tensor([-2.4, -3, -0.419/2, -1.5]), inp_max=  torch.tensor([2.4, 3, 0.419/2, 1.5])):
         super(ActorCriticSNN, self).__init__()
-        self.spike_grad = surrogate.fast_sigmoid(slope=25)
-
-        self.cont_to_spike_layer = nn.Linear(num_inputs,num_inputs)
-        self.lif_in = snn.Leaky(beta = .65, spike_grad=self.spike_grad, threshold=.25)
-
-        self.layer1 = nn.Linear(num_inputs, 32)
-        self.lif1 = snn.Leaky(beta = .65, spike_grad=self.spike_grad, threshold=.25)
-        self.layer2 = nn.Linear(32, 32)
-        self.lif2 = snn.Leaky(beta=0.85, spike_grad=self.spike_grad)
-        self.layer3 = nn.Linear(32, 32)
-        self.lif3 = snn.Leaky(beta=0.85, spike_grad=self.spike_grad)
-        self.layer4 = nn.Linear(32, 32)
-        self.lif4 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        self.layer5 = nn.Linear(32, 32)
-        self.lif5 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        self.layer6 = nn.Linear(32, 32)
-        self.lif6 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        self.layer7 = nn.Linear(32, 32)
-        self.lif7 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        
-
+        self.spike_grad = surrogate.fast_sigmoid()
         num_outputs = action_space.n
+
+        ALPHA = .05
+        BETA  = .75
+        THRESHOLD = 1.
+        # Initialize surrogate gradient
+        # self.spike_grad1 = surrogate.fast_sigmoid()  # passes default parameters from a closure
+        # self.spike_grad2 = surrogate.FastSigmoid.apply  # passes default parameters, equivalent to above
+        # self.spike_grad3 = surrogate.fast_sigmoid(slope=50)  # custom parameters from a closure
+
+        # make this layer bigger
+        # Try to encode all to positive values (use from normal layer to bigger layer with relu)
+
+        self.cont_to_spike_layer = nn.Linear(num_inputs,1000*num_inputs, bias=False) # vs scaled identity
+        self.lif_in = snn.Synaptic(alpha=ALPHA,beta = .6, spike_grad=self.spike_grad, reset_mechanism = 'subtract', learn_beta = True, learn_alpha = True, threshold = THRESHOLD)
+
+        self.layer1 = nn.Linear(1000*num_inputs, 320, bias=False)
+        # self.lif1 = snn.Leaky(beta = .95, spike_grad=self.spike_grad)
+        self.sn1 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract', threshold = THRESHOLD)
+        self.layer2 = nn.Linear(320, 320, bias=False)
+        # self.lif2 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
+        self.sn2 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract' ,threshold = THRESHOLD)
+        self.layer3 = nn.Linear(320, 100*num_outputs, bias=False)
+        # self.lif3 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
+        self.sn3 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract', threshold = THRESHOLD)
+
         # try to represent value as 100 neurons, sum spikes to have score /100
-        # self.critic_linear = nn.Linear(32, 100)
-        self.critic_linear = nn.Linear(32, 1)
-        self.lif_critic = snn.Leaky(beta=0.95,threshold=100, learn_beta=True, spike_grad=self.spike_grad)
-        self.value_mat = torch.ones(100, requires_grad=False)/100
+        self.critic_linear = nn.Linear(100*num_outputs, 1) 
+        # self.critic_linear = nn.Linear(32, 1) # 
+        # self.lif_critic = snn.Leaky(beta=0.95,threshold=100, learn_beta=True, spike_grad=self.spike_grad)
+        # self.value_mat  = nn.Linear(100,1)
+        # nn.init.normal_(self.value_mat.weight, 2,1) # we want initialize value roughly 100 -> lets say average of connections should be 2 (if 50 percent of neurons spike we have 100)
+        # self.value_mat = torch.ones(100, requires_grad=False)/100
         # Try same as value
-        self.actor_linear = nn.Linear(32, 100*num_outputs)
+        self.actor_linear = nn.Linear(100*num_outputs, num_outputs)
         # self.actor_linear = nn.Linear(32, num_outputs)
 
-        self.lif_actor = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        self.action_mat = torch.zeros(100*num_outputs,num_outputs, requires_grad=False) 
-        for row in range(num_outputs):
-            self.action_mat[row*100:(row+1)*100,row] = torch.ones(100, requires_grad=False)/100
+        # self.lif_actor = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
+        # self.sn_actor = snn.Synaptic(alpha=0.9,beta = .85, spike_grad=self.spike_grad)
+        # self.action_mat = nn.Linear(100*num_outputs, num_outputs)
+        # self.critic_linear = nn.Linear(100*num_outputs, 1) 
 
-
-        # self.apply(weights_init)
-        # self.actor_linear.weight.data = normalized_columns_initializer(
-        #     self.actor_linear.weight.data, 0.01)
-        # self.actor_linear.bias.data.fill_(0)
-        # self.critic_linear.weight.data = normalized_columns_initializer(
-        #     self.critic_linear.weight.data, 1.0)
-        # self.critic_linear.bias.data.fill_(0)
+        # maje it more controlled
+        # self.action_mat = torch.zeros(100*num_outputs,num_outputs, requires_grad=False) 
+        # for row in range(num_outputs):
+        #     self.action_mat[row*100:(row+1)*100,row] = torch.ones(100, requires_grad=False)/100
+        # self.action_mat = self.action_mat.clone().detach().requires_grad_(True)
+        self.apply(weights_init)
+        
+        # self.cont_to_spike_layer.weight.data = normalized_columns_initializer(
+        #     self.cont_to_spike_layer.weight.data, 0.01)
+        
+        # self.layer1.weight.data = normalized_columns_initializer(
+        #     self.layer1.weight.data, 0.7)
+        # self.layer2.weight.data = normalized_columns_initializer(
+        #     self.layer2.weight.data, 0.7)
+        # self.layer3.weight.data = normalized_columns_initializer(
+        #     self.layer3.weight.data, 0.7)
+        torch.nn.init.xavier_uniform_(self.layer1.weight, gain=2.5)
+        torch.nn.init.xavier_uniform_(self.layer2.weight, gain=3.5)
+        torch.nn.init.xavier_uniform_(self.layer3.weight, gain=4.5)
+        # self.cont_to_spike_layer.bias.data.fill_(0)
+        self.actor_linear.weight.data = normalized_columns_initializer(
+            self.actor_linear.weight.data, 0.01)
+        self.actor_linear.bias.data.fill_(0)
+        self.critic_linear.weight.data = normalized_columns_initializer(
+            self.critic_linear.weight.data, 1.0)
+        self.critic_linear.bias.data.fill_(0)
 
        # membranes at t = 0
-        self.mem_in     = self.lif_in.init_leaky()
-        self.mem1       = self.lif1.init_leaky()
-        self.mem2       = self.lif2.init_leaky()
-        self.mem3       = self.lif3.init_leaky()
-        self.mem4       = self.lif4.init_leaky()
-        self.mem5       = self.lif5.init_leaky()
-        self.mem6       = self.lif6.init_leaky()
-        self.mem7       = self.lif7.init_leaky()
-        self.mem_critic = self.lif_critic.init_leaky()
-        self.mem_actor  = self.lif_actor.init_leaky()
+        self.syn_in, self.mem_in = self.lif_in.init_synaptic()
+        self.syn1, self.mem1     = self.sn1.init_synaptic()
+        self.syn2, self.mem2     = self.sn2.init_synaptic()
+        self.syn3, self.mem3     = self.sn3.init_synaptic()
+       
+        # self.mem_critic = self.lif_critic.init_leaky()
+        # self.mem_actor  = self.lif_actor.init_leaky()
+        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
+
+        self.train()
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+        self.syn_in_rec = []  # Record the output trace of membrane potential
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        self.syn1_rec = []  # Record the output trace of membrane potential
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+        self.syn2_rec = []  # Record the output trace of membrane potential
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
+        self.syn3_rec = []  # Record the output trace of membrane potential
+
+        self.critic_vals = deque([],value_window)
+        self.spike_counter = 0
+
+        # for normalization purpose
+        self.inp_min = inp_min
+        self.inp_max = inp_max
+        self.scale_factor = nn.Parameter(torch.tensor(10.))  # Make scale_factor a learnable parameter
+    def init_mem(self):
+        self.syn_in, self.mem_in     = self.lif_in.init_synaptic()
+        self.syn1,   self.mem1       = self.sn1.init_synaptic()
+        self.syn2,   self.mem2       = self.sn2.init_synaptic()
+        self.syn3,   self.mem3       = self.sn3.init_synaptic()
+
+
+        self.spike_counter = 0
+        
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+        self.syn_in_rec = []  # Record the output trace of membrane potential
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        self.syn1_rec = []  # Record the output trace of membrane potential
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+        self.syn2_rec = []  # Record the output trace of membrane potential
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
+        self.syn3_rec = []  # Record the output trace of membrane potential
+
+        # self.mem_critic = self.lif_critic.init_leaky()
+        # self.mem_actor  = self.lif_actor.init_leaky()
+        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
+
+    # def normalize(self, inp):
+    #     if torch.min(inp, dim=0)< self.inp_min:
+    #         self.inp_min =torch.min(inp, dim=0)
+        
+    #     if torch.max(inp, dim=0)> self.inp_max:
+    #         self.inp_max =torch.max(inp, dim=0)
+
+    #     norm_inp = (inp - self.inp_min)/(self.inp_max-self.inp_min)
+    #     return norm_inp
+    
+    def soft_population(self, inp,device = 'cpu',nr_inp = 4, neurons_dim = 1000, width = 15):
+        '''applies soft_population encoding
+        neurons_dim is number of neurons per input channel
+        scale_factors is list of scales for every input
+        width is width of affected neurons'''
+        out_fion = torch.zeros((1,nr_inp*neurons_dim)).to(device)
+        array = torch.tensor(range(neurons_dim), requires_grad = False).to(device)
+
+        normal_inp = (inp-self.inp_min.to(device))/(self.inp_max.to(device)-self.inp_min.to(device))*neurons_dim
+        for i in range(nr_inp):
+            normal_fion = gaussian_function(array, normal_inp[0][i],width/2)* self.scale_factor* width
+            out_fion[0][i*1000:((i+1)*1000)] = normal_fion
+
+        return out_fion
+        
+    def forward(self, inputs, device, print_spikes = False):
+        # soft population encoding
+        # cur_in = self.soft_population(inputs, device = device)
+        # print(cur_in.size())
+        # # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
+        cur_in = torch.sigmoid(self.cont_to_spike_layer(inputs)) # avoid negative incoming currents
+        # print(cur_in.size())
+
+
+        # print(cur_in[:,0])
+        spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)
+        # print(spikes_in)
+        cur1 = (self.layer1(spikes_in))
+        # print(cur1)
+        # spk1, self.mem1 = self.lif1(cur1, self.mem1)
+        spk1, self.syn1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
+        # print(spk1.shape, self.mem1.shape)
+        cur2 = (self.layer2(spk1))
+        # spk2, self.mem2 = self.lif2(cur2, self.mem2)
+        spk2, self.syn2, self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
+        cur3 = (self.layer3(spk2))
+        # spk3, self.mem3 = self.lif3(cur3, self.mem3)
+        spk3, self.syn3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
+        
+        actions = torch.sigmoid(self.actor_linear(spk3))
+
+        # cur_critic = self.critic_linear(spk3)
+        # # val = torch.sigmoid(cur_critic)
+        # val = cur_critic
+        # spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
+        # spk_actor, self.syn_actor, self.mem_actor = self.sn_actor(cur_actor, self.syn_actor, self.mem_actor)
+        val = (self.critic_linear(spk3))
+        # actions = self.action_mat(spk_actor)
+
+        if print_spikes:
+            print(self.mem1, self.mem2, self.mem3)
+            # plot_activity(spikes_in, spk1, spk2)
+
+        self.spk_in_rec.append(spikes_in)
+        self.mem_in_rec.append(self.mem_in)
+        self.syn_in_rec.append(self.syn_in)
+        self.spk1_rec.append(spk1)
+        self.mem1_rec.append(self.mem1)
+        self.syn1_rec.append(self.syn1)
+        self.spk2_rec.append(spk2)
+        self.mem2_rec.append(self.mem2)
+        self.syn2_rec.append(self.syn2)
+        self.spk3_rec.append(spk3)
+        self.mem3_rec.append(self.mem3)
+        self.syn3_rec.append(self.syn3)
+
+        
+
+        return val, actions
+    
+
+class ActorCriticSNN_dummy(torch.nn.Module):
+    def __init__(self, num_inputs, action_space, value_window):
+        super(ActorCriticSNN_dummy, self).__init__()
+        self.spike_grad = surrogate.fast_sigmoid()
+        num_outputs = action_space.n
+
+
+               # make this layer bigger
+        self.cont_to_spike_layer = nn.Linear(num_inputs,100*num_inputs) # vs scaled identity
+        self.lif_in = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+
+        self.layer1 = nn.Linear(100*num_inputs, 320)
+        # self.lif1 = snn.Leaky(beta = .95, spike_grad=self.spike_grad)
+        self.sn1 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+
+        self.layer3 = nn.Linear(320, 100*num_outputs)
+        # self.lif3 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
+        self.sn3 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+
+        # try to represent value as 100 neurons, sum spikes to have score /100
+        self.critic_linear = nn.Linear(100*num_outputs, 1) 
+     
+        # Try same as value
+        self.actor_linear = nn.Linear(100*num_outputs, num_outputs)
+     
+       # membranes at t = 0
+        self.syn_in, self.mem_in     = self.lif_in.init_synaptic()
+        self.syn1, self.mem1     = self.sn1.init_synaptic()
+        self.syn3, self.mem3     = self.sn3.init_synaptic()
+       
+        # self.mem_critic = self.lif_critic.init_leaky()
+        # self.mem_actor  = self.lif_actor.init_leaky()
+        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
 
         self.train()
 
         self.critic_vals = deque([],value_window)
     def init_mem(self):
-        self.mem_in     = self.lif_in.init_leaky()
-        self.mem1       = self.lif1.init_leaky()
-        self.mem2       = self.lif2.init_leaky()
-        self.mem3       = self.lif3.init_leaky()
-        self.mem4       = self.lif4.init_leaky()
-        self.mem5       = self.lif5.init_leaky()
-        self.mem6       = self.lif6.init_leaky()
-        self.mem7       = self.lif7.init_leaky()
-        self.mem_critic = self.lif_critic.init_leaky()
-        self.mem_actor  = self.lif_actor.init_leaky()
+        self.syn_in, self.mem_in     = self.lif_in.init_synaptic()
+        self.syn1,   self.mem1       = self.sn1.init_synaptic()
+        self.syn3,   self.mem3       = self.sn3.init_synaptic()
+
+        # self.mem_critic = self.lif_critic.init_leaky()
+        # self.mem_actor  = self.lif_actor.init_leaky()
+        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
 
 
     def forward(self, inputs):
         # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
         cur_in = self.cont_to_spike_layer(inputs)
-        spikes_in, self.mem_in = self.lif_in(cur_in, self.mem_in)
+        spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)
 
         cur1 = self.layer1(spikes_in)
-        spk1, self.mem1 = self.lif1(cur1, self.mem1)
-        # print('Spikes in layer 1:\n', spk1)
+        # spk1, self.mem1 = self.lif1(cur1, self.mem1)
+        spk1, self.syn1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
         cur2 = self.layer2(spk1)
-        spk2, self.mem2 = self.lif2(cur2, self.mem2)
-        # print('Spikes in layer 2:\n', spk2)'
+        # spk2, self.mem2 = self.lif2(cur2, self.mem2)
+        spk2, self.syn2, self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
         cur3 = self.layer3(spk2)
-        spk3, self.mem3 = self.lif3(cur3, self.mem3)
+        # spk3, self.mem3 = self.lif3(cur3, self.mem3)
+        spk3, self.syn3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
 
-        cur4 = self.layer4(spk3)
-        spk4, self.mem4 = self.lif4(cur4, self.mem4)
-
-        cur5 = self.layer5(spk4)
-        spk5, self.mem5 = self.lif5(cur5, self.mem5)
-
-        cur6 = self.layer6(spk5)
-        spk6, self.mem6 = self.lif6(cur6, self.mem6)
-
-        cur7 = self.layer7(spk6)
-        spk7, self.mem7 = self.lif7(cur7, self.mem7)
-        # simplest output for actor is spike in node 1 is action 1
-        cur_actor = self.actor_linear(spk7)
-        cur_critic = self.critic_linear(spk7)
-
-        spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
-        spk_critic, self.mem_critic = self.lif_critic(cur_critic,self.mem_critic)
-        # val = poisson_decode(spk_critic, 10)
-        # val = torch.sum(spk_critic)/100
-        val = self.mem_critic
-        actions = torch.matmul(spk_actor,self.action_mat)
-
-        # actions = spk_actor
-        # self.critic_vals.append(spk_critic)
-        # norm_weight = 0
-        # value = 0
-        # for i in range(len(self.critic_vals)):
-        #     norm_weight += i
-        #     value += self.critic_vals[i]*i
-        # value = value/norm_weight
+        actions = self.actor_linear(spk3)
+        # cur_critic = self.critic_linear(spk3)
+        # # val = torch.sigmoid(cur_critic)
+        # val = cur_critic
+        # spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
+        # spk_actor, self.syn_actor, self.mem_actor = self.sn_actor(cur_actor, self.syn_actor, self.mem_actor)
+        val = self.critic_linear(spk3)
+        # actions = self.action_mat(spk_actor)
 
         return val, actions
     
+
 class Feedforward(nn.Module):
 
     def __init__(self, nr_input_nodes, nr_output_nodes, layers, size_hiddenlayers):
@@ -240,6 +404,8 @@ def normalized_columns_initializer(weights, std=1.0):
     out *= std / torch.sqrt(out.pow(2).sum(1, keepdim=True))
     return out
 
+def gaussian_function(x, mean, std_dev):
+    return 1 / (std_dev * np.sqrt(2 * np.pi)) * torch.exp(-(x - mean) ** 2 / (2 * std_dev ** 2))
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -256,7 +422,70 @@ def weights_init(m):
         fan_out = weight_shape[0]
         w_bound = np.sqrt(6. / (fan_in + fan_out))
         m.weight.data.uniform_(-w_bound, w_bound)
-        m.bias.data.fill_(0)
+        # m.bias.data.fill_(0)
+
+def plot_activity(spike_data_layer1,spike_data_layer2,spike_data_layer3):
+    #  Index into a single sample from a minibatch
+    spike_data_sample_1 = spike_data_layer1[:, 0, :]
+    spike_data_sample_2 = spike_data_layer2[:, 0, :]
+    spike_data_sample_3 = spike_data_layer3[:, 0, :]
+
+
+    fig1 = plt.figure(facecolor="w", figsize=(10, 5))
+    ax1 = fig1.add_subplot(311)
+    
+    
+
+    #  s: size of scatter points; c: color of scatter points
+    splt.raster(spike_data_sample_1, ax1, s=1.5, c="black")
+    plt.title("Input Layer")
+    plt.xlim((0,200))
+    # fig2 = plt.figure(facecolor="w", figsize=(10, 5))
+    ax2 = fig1.add_subplot(312)
+    splt.raster(spike_data_sample_2, ax2, s=1.5, c="green")
+    plt.title("layer 2 Layer")
+    plt.xlim((0,200))
+
+    # fig3 = plt.figure(facecolor="w", figsize=(10, 5))
+    ax3 = fig1.add_subplot(313)
+    splt.raster(spike_data_sample_3, ax3, s=1.5, c="red")
+    plt.title("layer 3 Layer")
+    plt.xlim((0,200))
+
+    # plt.title("Input Layer")
+    plt.xlabel("Time step")
+    plt.ylabel("Neuron Number")
+    plt.show()
+
+def plot_potentials(spk_data_layer_1, mem_data_layer_1,syn_data_layer_1,spk_data_layer_2, mem_data_layer_2,syn_data_layer_2,lim=10):
+    spk_data_sample_1 = spk_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
+    mem_data_sample_1 = mem_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
+    syn_data_sample_1 = syn_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
+
+    spk_data_sample_2 = spk_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
+    mem_data_sample_2 = mem_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
+    syn_data_sample_2 = syn_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
+
+    
+    fig1 = plt.figure(facecolor="w", figsize=(10, 5))
+    plt.subplot(311)
+    plt.title('Membrane potentials')
+    plt.plot( range(len(mem_data_sample_1)),mem_data_sample_1)
+    plt.plot( range(len(mem_data_sample_2)),mem_data_sample_2)
+    plt.subplot(312)
+    plt.title('Synaptic Currents')
+    plt.plot( range(len(syn_data_sample_1)),syn_data_sample_1)
+    plt.plot( range(len(syn_data_sample_2)),syn_data_sample_2)
+    plt.subplot(313)
+    plt.title('Spikes')
+    plt.scatter( range(len(spk_data_sample_1)),spk_data_sample_1)
+    plt.scatter( range(len(spk_data_sample_2)),spk_data_sample_2)
+    plt.show()
+    # splt.traces(mem_data_sample_1)
+    # fig2 = plt.figure(facecolor="w", figsize=(10, 5))
+    # splt.traces(mem_data_sample_2)
+    
+
 
 
 class ActorCritic(torch.nn.Module):
