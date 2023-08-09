@@ -21,16 +21,13 @@ import numpy as np
 import gym
 
 env = gym.make('MountainCar-v0')
-env = MountainCart_fake() 
+env = MountainCart_fake()
 constant_state, info = env.reset()
 
 # env = gym.make('CartPole-v1', render_mode="human")
 # env = gym.make("CartPole-v1")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# for macos:
-# device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-print('Device in use: ', str(device))
 show_result = True
 # global parameters
 T = 0
@@ -52,10 +49,9 @@ T_SNN_VAL_WINDOW = 5
 
 
 
-# multithreading purposes
-nr_threads = threading.active_count()
-nr_threads = torch.get_num_threads()
-print('Number of threads available: ', str(nr_threads))
+# # multithreading purposes
+# nr_threads = threading.active_count()
+
 # # create 4 agents
 # actor1 = f(2,3,3,120)
 
