@@ -17,14 +17,14 @@ import snntorch.spikeplot as splt
 
 from collections import namedtuple, deque
 class ActorCriticSNN(torch.nn.Module):
-    def __init__(self, num_inputs, action_space, value_window, inp_min = torch.tensor([-2.4, -3, -0.419/2, -1.5]), inp_max=  torch.tensor([2.4, 3, 0.419/2, 1.5])):
+    def __init__(self, num_inputs, action_space, value_window, inp_min = torch.tensor([-2.4, -3, -0.419/2, -1.5]), inp_max=  torch.tensor([2.4, 3, 0.419/2, 1.5]), alpha = 0.05, beta = 0.9, threshold = 1):
         super(ActorCriticSNN, self).__init__()
         self.spike_grad = surrogate.fast_sigmoid()
         num_outputs = action_space.n
 
-        ALPHA = .05
-        BETA  = .75
-        THRESHOLD = 1.
+        ALPHA = alpha
+        BETA  = beta
+        THRESHOLD = threshold
         # Initialize surrogate gradient
         # self.spike_grad1 = surrogate.fast_sigmoid()  # passes default parameters from a closure
         # self.spike_grad2 = surrogate.FastSigmoid.apply  # passes default parameters, equivalent to above
@@ -47,14 +47,14 @@ class ActorCriticSNN(torch.nn.Module):
         self.sn3 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract', threshold = THRESHOLD)
 
         # try to represent value as 100 neurons, sum spikes to have score /100
-        self.critic_linear = nn.Linear(100*num_outputs, 1) 
+        self.critic_linear = nn.Linear(100*num_outputs, 1, bias=False) 
         # self.critic_linear = nn.Linear(32, 1) # 
         # self.lif_critic = snn.Leaky(beta=0.95,threshold=100, learn_beta=True, spike_grad=self.spike_grad)
         # self.value_mat  = nn.Linear(100,1)
         # nn.init.normal_(self.value_mat.weight, 2,1) # we want initialize value roughly 100 -> lets say average of connections should be 2 (if 50 percent of neurons spike we have 100)
         # self.value_mat = torch.ones(100, requires_grad=False)/100
         # Try same as value
-        self.actor_linear = nn.Linear(100*num_outputs, num_outputs)
+        self.actor_linear = nn.Linear(100*num_outputs, num_outputs, bias=False)
         # self.actor_linear = nn.Linear(32, num_outputs)
 
         # self.lif_actor = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
@@ -84,10 +84,10 @@ class ActorCriticSNN(torch.nn.Module):
         # self.cont_to_spike_layer.bias.data.fill_(0)
         self.actor_linear.weight.data = normalized_columns_initializer(
             self.actor_linear.weight.data, 0.01)
-        self.actor_linear.bias.data.fill_(0)
+        # self.actor_linear.bias.data.fill_(0)
         self.critic_linear.weight.data = normalized_columns_initializer(
             self.critic_linear.weight.data, 1.0)
-        self.critic_linear.bias.data.fill_(0)
+        # self.critic_linear.bias.data.fill_(0)
 
        # membranes at t = 0
         self.syn_in, self.mem_in = self.lif_in.init_synaptic()
@@ -171,14 +171,18 @@ class ActorCriticSNN(torch.nn.Module):
 
         return out_fion
         
-    def forward(self, inputs, device, print_spikes = False):
+    def forward(self, inputs, device, print_spikes = False, normalize_in = True):
+
+        inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
+        # print(cur_in.size())
+        inputs = inputs.to(torch.float32)
+
         # soft population encoding
         # cur_in = self.soft_population(inputs, device = device)
-        # print(cur_in.size())
         # # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
         cur_in = torch.sigmoid(self.cont_to_spike_layer(inputs)) # avoid negative incoming currents
+        # cur_in = self.cont_to_spike_layer(inputs)
         # print(cur_in.size())
-
 
         # print(cur_in[:,0])
         spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)

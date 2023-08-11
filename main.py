@@ -5,6 +5,7 @@ from helper_functions import Memory, Transition, ActorCritic, ActorCriticSNN, pl
 
 # environment wrapper with tunable states:
 from CartPole_modified import MountainCart_fake
+from environments import SimpleGrid
 
 import torch
 import torch.nn as nn
@@ -20,16 +21,17 @@ import numpy as np
 # training environment
 import gym
 
-env = gym.make('MountainCar-v0')
-env = MountainCart_fake() 
-constant_state, info = env.reset()
-
+# env = gym.make('MountainCar-v0')
+# env = MountainCart_fake() 
+# constant_state, info = env.reset()
+env = SimpleGrid()
 # env = gym.make('CartPole-v1', render_mode="human")
 # env = gym.make("CartPole-v1")
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # for macos:
-# device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = 'cpu'
 print('Device in use: ', str(device))
 show_result = True
 # global parameters
@@ -63,7 +65,7 @@ print('Number of threads available: ', str(nr_threads))
 # critic1 = f(2,1,3,120)
 
 
-model = ActorCriticSNN(2, env.action_space, T_SNN_VAL_WINDOW).to(device)
+model = ActorCriticSNN(4, env.action_space, T_SNN_VAL_WINDOW).to(device)
 
 # model = ActorCritic(4, env.action_space).to(device)
 
@@ -88,8 +90,8 @@ while T<T_max:
     model.load_state_dict(model_params)
 
     # get initial state
-    # state, info = env.reset()
-    state = env.set_state(constant_state)
+    state, info = env.reset()
+    # state = env.set_state(constant_state)
 
     # set up replay memory
     memory = deque([])
