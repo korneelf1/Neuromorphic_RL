@@ -197,9 +197,16 @@ class SimpleGrid():
                         '3' : [1,0]}
         self.action_space = Discret(4)
         self.time_tracker = 0
+        self.x_t = np.random.randint(0,self.size)
+        self.y_t = np.random.randint(0,self.size)
+
     def reset(self):
         self.time_tracker = 0
-        self.state = np.array([0,0,2,2])
+        x = np.random.randint(0,self.size)
+        y = np.random.randint(0,self.size)
+        self.x_t = np.random.randint(0,self.size)
+        self.y_t = np.random.randint(0,self.size)
+        self.state = np.array([x,y,self.x_t,self.y_t])
         return self.state, []
     
     def step(self,action):
@@ -210,8 +217,8 @@ class SimpleGrid():
         self.time_tracker +=1
         terminal = False
         reward = -self.time_tracker
-        if (new_x == self.size-1) & (new_y == self.size-1):
+        if (new_x == self.x_t) & (new_y == self.y_t):
             reward += 200 
             terminal = True
-        self.state = np.array([new_x,new_y,2,2])
+        self.state = np.array([new_x,new_y,self.x_t,self.y_t])
         return self.state, reward, terminal, 0,0

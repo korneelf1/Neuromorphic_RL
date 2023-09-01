@@ -45,7 +45,7 @@ class dummydata:
         inputs3 = torch.zeros((length,2),requires_grad=False)
         inputs3[:,1] = 1
         inputs3 = inputs3.unsqueeze(0)
-        out_val3 = torch.zeros((length,1),requires_grad=False).unsqueeze(0)
+        out_val3 = torch.ones((length,1),requires_grad=False).unsqueeze(0)
         out_act3 = torch.zeros((length,2),requires_grad=False)
         out_act3[:,1] = 1
         out_act3 = out_act3.unsqueeze(0)
@@ -53,14 +53,14 @@ class dummydata:
         inputs4 = torch.zeros((length,2),requires_grad=False).unsqueeze(0)
         inputs4[:,0] = 1
         inputs4 = inputs4.unsqueeze(0)
-        out_val4 = torch.zeros((length,1),requires_grad=False).unsqueeze(0)
+        out_val4 = torch.ones((length,1),requires_grad=False).unsqueeze(0)
         out_act4 = torch.zeros((length,2),requires_grad=False)
         out_act4[:,1] = 1
         out_act4 = out_act4.unsqueeze(0)
         # out_val  = torch.tensor(torch.sum(inputs,dim=-1), requires_grad=False)
         # out_act = torch.tensor(np.column_stack((torch.sum(inputs,dim=-1),torch.sum(inputs,dim=-1))),requires_grad=False)
         index = np.random.randint(0,3)
-        
+
         inputs_pos = [inputs1,inputs2,inputs3,inputs4]
         out_act_pos = [out_act1,out_act2,out_act3,out_act4]
         out_val_pos = [out_val1,out_val2,out_val3,out_val4]

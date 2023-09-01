@@ -16,10 +16,12 @@ from snntorch import functional
 import snntorch.spikeplot as splt
 
 from collections import namedtuple, deque
+
+# from fast_sigmoid_module import fast_sigmoid
 class ActorCriticSNN(torch.nn.Module):
     def __init__(self, num_inputs, action_space, value_window, inp_min = torch.tensor([-2.4, -3, -0.419/2, -1.5]), inp_max=  torch.tensor([2.4, 3, 0.419/2, 1.5]), alpha = 0.05, beta = 0.9, threshold = 1):
         super(ActorCriticSNN, self).__init__()
-        self.spike_grad = surrogate.fast_sigmoid()
+        self.spike_grad = fast_sigmoid(slope=25)
         num_outputs = action_space.n
 
         ALPHA = alpha
@@ -33,10 +35,10 @@ class ActorCriticSNN(torch.nn.Module):
         # make this layer bigger
         # Try to encode all to positive values (use from normal layer to bigger layer with relu)
 
-        self.cont_to_spike_layer = nn.Linear(num_inputs,1000*num_inputs, bias=False) # vs scaled identity
+        self.cont_to_spike_layer = nn.Linear(num_inputs,100*num_inputs, bias=False) # vs scaled identity
         self.lif_in = snn.Synaptic(alpha=ALPHA,beta = .6, spike_grad=self.spike_grad, reset_mechanism = 'subtract', learn_beta = True, learn_alpha = True, threshold = THRESHOLD)
 
-        self.layer1 = nn.Linear(1000*num_inputs, 320, bias=False)
+        self.layer1 = nn.Linear(100*num_inputs, 320, bias=False)
         # self.lif1 = snn.Leaky(beta = .95, spike_grad=self.spike_grad)
         self.sn1 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract', threshold = THRESHOLD)
         self.layer2 = nn.Linear(320, 320, bias=False)
@@ -47,14 +49,14 @@ class ActorCriticSNN(torch.nn.Module):
         self.sn3 = snn.Synaptic(alpha=ALPHA,beta = BETA, spike_grad=self.spike_grad, reset_mechanism = 'subtract', threshold = THRESHOLD)
 
         # try to represent value as 100 neurons, sum spikes to have score /100
-        self.critic_linear = nn.Linear(100*num_outputs, 1, bias=False) 
+        self.critic_linear = nn.Linear(100*num_outputs, 1, bias=True) 
         # self.critic_linear = nn.Linear(32, 1) # 
         # self.lif_critic = snn.Leaky(beta=0.95,threshold=100, learn_beta=True, spike_grad=self.spike_grad)
         # self.value_mat  = nn.Linear(100,1)
         # nn.init.normal_(self.value_mat.weight, 2,1) # we want initialize value roughly 100 -> lets say average of connections should be 2 (if 50 percent of neurons spike we have 100)
         # self.value_mat = torch.ones(100, requires_grad=False)/100
         # Try same as value
-        self.actor_linear = nn.Linear(100*num_outputs, num_outputs, bias=False)
+        self.actor_linear = nn.Linear(100*num_outputs, num_outputs, bias=True)
         # self.actor_linear = nn.Linear(32, num_outputs)
 
         # self.lif_actor = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
@@ -78,9 +80,12 @@ class ActorCriticSNN(torch.nn.Module):
         #     self.layer2.weight.data, 0.7)
         # self.layer3.weight.data = normalized_columns_initializer(
         #     self.layer3.weight.data, 0.7)
-        torch.nn.init.xavier_uniform_(self.layer1.weight, gain=2.5)
-        torch.nn.init.xavier_uniform_(self.layer2.weight, gain=3.5)
-        torch.nn.init.xavier_uniform_(self.layer3.weight, gain=4.5)
+        # torch.nn.init.xavier_uniform_(self.layer1.weight, gain=2.5)
+        # torch.nn.init.xavier_uniform_(self.layer2.weight, gain=3.5)
+        # torch.nn.init.xavier_uniform_(self.layer3.weight, gain=4.5)
+        torch.nn.init.constant_(self.layer1.weight, 500) # if neuron doesnt spike it will never backprop and never be used
+        torch.nn.init.constant_(self.layer2.weight, 500)
+        torch.nn.init.constant_(self.layer3.weight, 500)
         # self.cont_to_spike_layer.bias.data.fill_(0)
         self.actor_linear.weight.data = normalized_columns_initializer(
             self.actor_linear.weight.data, 0.01)
@@ -171,43 +176,43 @@ class ActorCriticSNN(torch.nn.Module):
 
         return out_fion
         
-    def forward(self, inputs, device, print_spikes = False, normalize_in = True):
+    def forward(self, inputs, device=None, print_spikes = False, normalize_in = True, nr_passes = 1):
+        for i in range(nr_passes):
+            inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
+            # print(cur_in.size())
+            inputs = inputs.to(torch.float32)
 
-        inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
-        # print(cur_in.size())
-        inputs = inputs.to(torch.float32)
+            # soft population encoding
+            # cur_in = self.soft_population(inputs, device = device)
+            # # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
+            cur_in = self.cont_to_spike_layer(inputs) # avoid negative incoming currents
+            # cur_in = self.cont_to_spike_layer(inputs)
+            # print(cur_in.size())
 
-        # soft population encoding
-        # cur_in = self.soft_population(inputs, device = device)
-        # # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
-        cur_in = torch.sigmoid(self.cont_to_spike_layer(inputs)) # avoid negative incoming currents
-        # cur_in = self.cont_to_spike_layer(inputs)
-        # print(cur_in.size())
+            # print(cur_in[:,0])
+            spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)
+            # print(spikes_in)
+            cur1 = (self.layer1(spikes_in))
+            # print(cur1)
+            # spk1, self.mem1 = self.lif1(cur1, self.mem1)
+            spk1, self.syn1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
+            # print(spk1.shape, self.mem1.shape)
+            cur2 = (self.layer2(spk1))
+            # spk2, self.mem2 = self.lif2(cur2, self.mem2)
+            spk2, self.syn2, self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
+            cur3 = (self.layer3(spk2))
+            # spk3, self.mem3 = self.lif3(cur3, self.mem3)
+            spk3, self.syn3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
+            
+            actions = torch.sigmoid(self.actor_linear(spk3))
 
-        # print(cur_in[:,0])
-        spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)
-        # print(spikes_in)
-        cur1 = (self.layer1(spikes_in))
-        # print(cur1)
-        # spk1, self.mem1 = self.lif1(cur1, self.mem1)
-        spk1, self.syn1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
-        # print(spk1.shape, self.mem1.shape)
-        cur2 = (self.layer2(spk1))
-        # spk2, self.mem2 = self.lif2(cur2, self.mem2)
-        spk2, self.syn2, self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
-        cur3 = (self.layer3(spk2))
-        # spk3, self.mem3 = self.lif3(cur3, self.mem3)
-        spk3, self.syn3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
-        
-        actions = torch.sigmoid(self.actor_linear(spk3))
-
-        # cur_critic = self.critic_linear(spk3)
-        # # val = torch.sigmoid(cur_critic)
-        # val = cur_critic
-        # spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
-        # spk_actor, self.syn_actor, self.mem_actor = self.sn_actor(cur_actor, self.syn_actor, self.mem_actor)
-        val = (self.critic_linear(spk3))
-        # actions = self.action_mat(spk_actor)
+            # cur_critic = self.critic_linear(spk3)
+            # # val = torch.sigmoid(cur_critic)
+            # val = cur_critic
+            # spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
+            # spk_actor, self.syn_actor, self.mem_actor = self.sn_actor(cur_actor, self.syn_actor, self.mem_actor)
+            val = (self.critic_linear(spk3))
+            # actions = self.action_mat(spk_actor)
 
         if print_spikes:
             print(self.mem1, self.mem2, self.mem3)
@@ -231,154 +236,132 @@ class ActorCriticSNN(torch.nn.Module):
         return val, actions
     
 
-class ActorCriticSNN_dummy(torch.nn.Module):
-    def __init__(self, num_inputs, action_space, value_window):
-        super(ActorCriticSNN_dummy, self).__init__()
-        self.spike_grad = surrogate.fast_sigmoid()
+class ActorCriticSNN_LIF(torch.nn.Module):
+    def __init__(self, num_inputs, action_space, value_window, inp_min = torch.tensor([0,0]), inp_max=  torch.tensor([1,1]),bias=False, nr_passes = 1 ):
+        super(ActorCriticSNN_LIF, self).__init__()
+        self.spike_grad = surrogate.FastSigmoid.apply
         num_outputs = action_space.n
 
+        beta = 0.95
+        self.nr_passes = nr_passes
+        # make this layer bigger
+        self.cont_to_spike_layer = nn.Linear(num_inputs,100*num_inputs,bias = bias) # vs scaled identity
+        self.lif_in = snn.Leaky(beta = .95, spike_grad=self.spike_grad, learn_beta=True)
 
-               # make this layer bigger
-        self.cont_to_spike_layer = nn.Linear(num_inputs,100*num_inputs) # vs scaled identity
-        self.lif_in = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+        self.layer1 = nn.Linear(100*num_inputs, 320,bias = bias)
+        self.lif1 = snn.Leaky(beta = beta, spike_grad=self.spike_grad)
+        # self.sn1 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
 
-        self.layer1 = nn.Linear(100*num_inputs, 320)
-        # self.lif1 = snn.Leaky(beta = .95, spike_grad=self.spike_grad)
-        self.sn1 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+        self.layer2 = nn.Linear(320,320,bias = bias)
+        self.lif2 = snn.Leaky(beta=beta, spike_grad=self.spike_grad)
 
-        self.layer3 = nn.Linear(320, 100*num_outputs)
-        # self.lif3 = snn.Leaky(beta=0.95, spike_grad=self.spike_grad)
-        self.sn3 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
+        self.layer3 = nn.Linear(320, 100*num_outputs,bias = bias)
+        self.lif3 = snn.Leaky(beta=beta, spike_grad=self.spike_grad)
+        # self.sn3 = snn.Synaptic(alpha=0.9,beta = .95, spike_grad=self.spike_grad)
 
         # try to represent value as 100 neurons, sum spikes to have score /100
-        self.critic_linear = nn.Linear(100*num_outputs, 1) 
-     
+        # bias might be useful in last non spiking layers
+        self.critic_linear = nn.Linear(100*num_outputs, 1,bias = True) 
+
         # Try same as value
-        self.actor_linear = nn.Linear(100*num_outputs, num_outputs)
+        self.actor_linear = nn.Linear(100*num_outputs, num_outputs,bias = True)
      
        # membranes at t = 0
-        self.syn_in, self.mem_in     = self.lif_in.init_synaptic()
-        self.syn1, self.mem1     = self.sn1.init_synaptic()
-        self.syn3, self.mem3     = self.sn3.init_synaptic()
-       
-        # self.mem_critic = self.lif_critic.init_leaky()
-        # self.mem_actor  = self.lif_actor.init_leaky()
-        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
+        self.mem_in   = self.lif_in.init_leaky()
+        self.mem1     = self.lif1.init_leaky()
+        self.mem2     = self.lif2.init_leaky()
+        self.mem3     = self.lif3.init_leaky()
+
+        self.inp_min = inp_min
+        self.inp_max = inp_max
 
         self.train()
 
-        self.critic_vals = deque([],value_window)
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+
+
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
+
+        # initialize layers
+        # torch.nn.init.constant_(self.cont_to_spike_layer.weight, 500)
+
+        # torch.nn.init.constant_(self.layer1.weight, 500) # if neuron doesnt spike it will never backprop and never be used
+        # torch.nn.init.constant_(self.layer2.weight, 500)
+        # torch.nn.init.constant_(self.layer3.weight, 500)
+
+        
+
     def init_mem(self):
-        self.syn_in, self.mem_in     = self.lif_in.init_synaptic()
-        self.syn1,   self.mem1       = self.sn1.init_synaptic()
-        self.syn3,   self.mem3       = self.sn3.init_synaptic()
+        self.mem_in   = self.lif_in.init_leaky()
+        self.mem1     = self.lif1.init_leaky()
+        self.mem2     = self.lif2.init_leaky()
+        self.mem3     = self.lif3.init_leaky()
 
-        # self.mem_critic = self.lif_critic.init_leaky()
-        # self.mem_actor  = self.lif_actor.init_leaky()
-        # self.syn_actor, self.mem_actor = self.sn_actor.init_synaptic()
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
 
 
-    def forward(self, inputs):
-        # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
-        cur_in = self.cont_to_spike_layer(inputs)
-        spikes_in, self.syn_in, self.mem_in = self.lif_in(cur_in, self.syn_in, self.mem_in)
+    def forward(self, inputs, nr_passes = 1):
+        
+        for i in range(self.nr_passes):
+            inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
 
-        cur1 = self.layer1(spikes_in)
-        # spk1, self.mem1 = self.lif1(cur1, self.mem1)
-        spk1, self.syn1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
-        cur2 = self.layer2(spk1)
-        # spk2, self.mem2 = self.lif2(cur2, self.mem2)
-        spk2, self.syn2, self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
-        cur3 = self.layer3(spk2)
-        # spk3, self.mem3 = self.lif3(cur3, self.mem3)
-        spk3, self.syn3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
+            inputs = inputs.to(torch.float32)
 
-        actions = self.actor_linear(spk3)
-        # cur_critic = self.critic_linear(spk3)
-        # # val = torch.sigmoid(cur_critic)
-        # val = cur_critic
-        # spk_actor, self.mem_actor = self.lif_actor(cur_actor, self.mem_actor)
-        # spk_actor, self.syn_actor, self.mem_actor = self.sn_actor(cur_actor, self.syn_actor, self.mem_actor)
+            # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
+            cur_in = self.cont_to_spike_layer(inputs)
+            spikes_in, self.mem_in = self.lif_in(cur_in, self.mem_in)
+
+            cur1 = self.layer1(spikes_in)
+            spk1, self.mem1 = self.lif1(cur1, self.mem1)
+            # spk1, self.mem1 = self.sn1(cur1, self.syn1, self.mem1)
+
+            cur2 = self.layer2(spk1)
+            spk2, self.mem2 = self.lif2(cur2, self.mem2)
+            # spk2,  self.mem2 = self.sn2(cur2, self.syn2, self.mem2)
+
+            cur3 = self.layer3(spk1)
+            spk3, self.mem3 = self.lif3(cur3, self.mem3)
+            # spk3, self.mem3 = self.sn3(cur3, self.syn3, self.mem3)
+
+        actions =  self.actor_linear(spk3)
+        
         val = self.critic_linear(spk3)
-        # actions = self.action_mat(spk_actor)
+        
+        # add information for plotting purposes
+        self.spk_in_rec.append(spikes_in)  # Record the output trace of spikes
+        self.mem_in_rec.append(self.mem_in)  # Record the output trace of membrane potential
+
+        self.spk1_rec.append(spk1)  # Record the output trace of spikes
+        self.mem1_rec.append(self.mem1)  # Record the output trace of membrane potential
+
+        self.spk2_rec.append(spk2)  # Record the output trace of spikes
+        self.mem2_rec.append(self.mem2)  # Record the output trace of membrane potential
+
+        self.spk3_rec.append(spk3)  # Record the output trace of spikes
+        self.mem3_rec.append(self.mem3)  # Record the output trace of membrane potential
+
 
         return val, actions
     
 
-class Feedforward(nn.Module):
-
-    def __init__(self, nr_input_nodes, nr_output_nodes, layers, size_hiddenlayers):
-        super(Feedforward,self).__init__()
-        '''Agent is a simple FC FF net with a number of layers, which can be increased to represent more complex functions. A minimum of two layers is possible.'''
-        fc1 = nn.Linear(nr_input_nodes, size_hiddenlayers)
-        relu = nn.ReLU()
-        
-        # create modulelist
-        self.modulelist = nn.ModuleList([fc1, relu])
-        for _ in range(layers-2):
-            self.modulelist.append(nn.Linear(size_hiddenlayers, size_hiddenlayers))
-            self.modulelist.append(relu)
-
-        fc_final = nn.Linear(size_hiddenlayers, nr_output_nodes)
-        self.modulelist.append(fc_final)
-  
-
-    def forward(self, x):
-        x = torch.tensor(x)
-        for layer in self.modulelist:
-            x = layer(x)
-
-        return x
-
-class A3Cnet(nn.Module):
-
-    def __init__(self, nr_input_nodes, nr_output_nodes_actor, nr_output_nodes_critic, layers, size_hiddenlayers):
-        super(A3Cnet,self).__init__()
-        '''Agent is a simple FC FF net with a number of layers, which can be increased to represent more complex functions. A minimum of two layers is possible.'''
-        fc1 = nn.Linear(nr_input_nodes, size_hiddenlayers)
-        relu = nn.ReLU()
-        
-        # create modulelist
-        self.modulelist = nn.ModuleList([fc1, relu])
-        for _ in range(layers-2):
-            self.modulelist.append(nn.Linear(size_hiddenlayers, size_hiddenlayers))
-            self.modulelist.append(relu)
-
-        self.fc_final_actor = nn.Linear(size_hiddenlayers, nr_output_nodes_actor)
-        self.fc_final_critic =  nn.Linear(size_hiddenlayers, nr_output_nodes_critic)
-        # self.modulelist.append(fc_final)
-  
-
-    def forward(self, x):
-        '''Returns actor_out, critic_out'''
-        x = torch.tensor(x)
-        for layer in self.modulelist:
-            x = layer(x)
-
-        x_actor = self.fc_final_actor(x)
-        x_critic = self.fc_final_critic(x)
-        return x_actor, x_critic
-Transition = namedtuple('transition',('reward', 'logprob', 'entropy','value'))
-
-class Memory(object):
-    '''Fifo memory'''
-    def __init__(self):
-        self.memory = deque([])
-
-    def append(self, transition):
-        self.memory.appendleft(transition)
-
-    def reset(self):
-        self.memory.clear()
-        
-    def __call__(self):
-        return self.memory
-    
-    def __iter__(self):
-        return self.memory
-    
-    # def reverse(self):
-    #     return self.memory.reverse()
 spike_tracker = []
 
 
@@ -464,11 +447,17 @@ def plot_activity(spike_data_layer1,spike_data_layer2,spike_data_layer3):
 def plot_potentials(spk_data_layer_1, mem_data_layer_1,syn_data_layer_1,spk_data_layer_2, mem_data_layer_2,syn_data_layer_2,lim=10):
     spk_data_sample_1 = spk_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
     mem_data_sample_1 = mem_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
-    syn_data_sample_1 = syn_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
+    if syn_data_layer_1 is not None:
+        syn_data_sample_1 = syn_data_layer_1.to('cpu').detach().numpy()[:, 0, 0]
+    else:
+        syn_data_sample_1 = torch.zeros(mem_data_sample_1.shape)
 
     spk_data_sample_2 = spk_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
     mem_data_sample_2 = mem_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
-    syn_data_sample_2 = syn_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
+    if syn_data_layer_2 is not None:
+        syn_data_sample_2 = syn_data_layer_2.to('cpu').detach().numpy()[:, 0, 0]
+    else:
+        syn_data_sample_2 = torch.zeros(mem_data_sample_2.shape)
 
     
     fig1 = plt.figure(facecolor="w", figsize=(10, 5))
@@ -495,8 +484,8 @@ def plot_potentials(spk_data_layer_1, mem_data_layer_1,syn_data_layer_1,spk_data
 class ActorCritic(torch.nn.Module):
     def __init__(self, num_inputs, action_space):
         super(ActorCritic, self).__init__()
-        self.conv1 = nn.Linear(num_inputs, 32)
-        self.conv2 = nn.Linear(32, 32)
+        self.conv1 = nn.Linear(num_inputs, 320)
+        self.conv2 = nn.Linear(320, 320)
         self.conv3 = nn.Linear(32, 32)
         self.conv4 = nn.Linear(32, 32)
         self.conv5 = nn.Linear(32, 32)
@@ -506,8 +495,8 @@ class ActorCritic(torch.nn.Module):
         # self.lstm = nn.LSTMCell(32 * 3 * 3, 256)
 
         num_outputs = action_space.n
-        self.critic_linear = nn.Linear(32, 1)
-        self.actor_linear = nn.Linear(32, num_outputs)
+        self.critic_linear = nn.Linear(320, 1)
+        self.actor_linear = nn.Linear(320, num_outputs)
 
         self.apply(weights_init)
         self.actor_linear.weight.data = normalized_columns_initializer(
@@ -523,14 +512,16 @@ class ActorCritic(torch.nn.Module):
         self.train()
 
     def forward(self, inputs):
+        inputs = inputs.to(torch.float32)
+
         # inputs, (hx, cx) = inputs
         x = F.elu(self.conv1(inputs))
         x = F.elu(self.conv2(x))
-        x = F.elu(self.conv3(x))
-        x = F.elu(self.conv4(x))
-        x = F.elu(self.conv5(x))
-        x = F.elu(self.conv6(x))
-        x = F.elu(self.conv7(x))
+        # x = F.elu(self.conv3(x))
+        # x = F.elu(self.conv4(x))
+        # x = F.elu(self.conv5(x))
+        # x = F.elu(self.conv6(x))
+        # x = F.elu(self.conv7(x))
 
         # x = x.view(-1, 32 * 3 * 3)
         # hx, cx = self.lstm(x, (hx, cx))
@@ -539,6 +530,4 @@ class ActorCritic(torch.nn.Module):
         return self.critic_linear(x), self.actor_linear(x)
 
 if __name__=='__main__':
-    agent = Feedforward(2,3,3,2)
     input_test = torch.tensor([2.,3.])
-    print(agent(input_test))
