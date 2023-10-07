@@ -15,7 +15,7 @@ import gym
 from tqdm import tqdm
 from CartPole_modified import CartPole_fake
 # import actor-critics
-from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN
+from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN,ActorCriticSNN_LIF_Small
 
 
 
@@ -34,7 +34,7 @@ EVALUATION_INTERVAL = 1000
 class MasterModel(mp.Process):
     def __init__(self, **args) -> None:
         super(MasterModel, self).__init__()
-        self.game_name = 'MountainCar-v0'
+        self.game_name = 'CartPole-v1'
         self.lr = args['lr']
         self.betas = args['betas']
         save_dir = args['save_dir']
@@ -46,7 +46,7 @@ class MasterModel(mp.Process):
         self.state_size = self.env.observation_space.shape[0]
         self.action_size = self.env.action_space
         
-        self.max_episodes = 100e3
+        self.max_episodes = 5e3
         self.spiking = args['spiking']
         self.device  = args['device']
         self.args = args
@@ -55,7 +55,7 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_LIF(self.state_size, self.action_size,
+            self.global_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
@@ -113,7 +113,6 @@ class MasterModel(mp.Process):
 
         time_finish = t_sim   
     
-
         return time_finish
     
     def run(self):
@@ -136,7 +135,7 @@ class MasterModel(mp.Process):
                     t = t/5
                     self.episode_times.append(t)
 
-                    # print('Time to failure: ', t)
+                    print('Time to failure: ', t)
 
                 
                 progress_bar.update(1)
@@ -178,7 +177,7 @@ class Worker(mp.Process):
     gloabl_MA      = 0
     best_score     = 0
     save_lock      = mp.Lock()
-    t_sim_max      = 500
+    t_sim_max      = 2000
     total_runs     = int(5e3)
 
     def __init__(self, global_model, global_counter, game_name, save_dir, nr_workers, **args):
@@ -198,7 +197,7 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_LIF(self.state_size, self.action_size,
+            self.local_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
