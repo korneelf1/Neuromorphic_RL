@@ -15,7 +15,7 @@ import gym
 from tqdm import tqdm
 from CartPole_modified import CartPole_fake
 # import actor-critics
-from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN,ActorCriticSNN_LIF_Small
+from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN,ActorCriticSNN_LIF_Small, ActorCriticSNN_SYN_Small
 
 
 
@@ -55,7 +55,7 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
+            self.global_model = ActorCriticSNN_SYN_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
@@ -197,7 +197,7 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
+            self.local_model = ActorCriticSNN_SYN_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network

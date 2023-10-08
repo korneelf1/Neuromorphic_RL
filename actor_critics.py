@@ -441,9 +441,9 @@ class ActorCriticSNN_SYN_Small(torch.nn.Module):
         self.nr_passes = nr_passes
 
         self.lin1 = nn.Linear(num_inputs, 320)
-        self.syn1 = snn.Synaptic(alpha = 0.3,beta = .95, spike_grad=self.spike_grad, learn_beta=True)
+        self.syn1 = snn.Synaptic(alpha = 0.6,beta = .95, spike_grad=self.spike_grad, learn_beta=True)
         self.lin2 = nn.Linear(320, 320)
-        self.syn2 = snn.Synaptic(alpha= 0.3,beta = beta, spike_grad=self.spike_grad, learn_beta=True)
+        self.syn2 = snn.Synaptic(alpha= 0.6,beta = beta, spike_grad=self.spike_grad, learn_beta=True)
 
         num_outputs = action_space.n
         self.critic_linear = nn.Linear(320, 1)
@@ -473,8 +473,8 @@ class ActorCriticSNN_SYN_Small(torch.nn.Module):
         self.mem3_rec = []  # Record the output trace of membrane potential
         
     def init_mem(self):
-        self.mem1, self.syncur1     = self.syn1.init_leaky()
-        self.mem2, self.syncur2     = self.syn2.init_leaky()
+        self.mem1, self.syncur1     = self.syn1.init_synaptic()
+        self.mem2, self.syncur2     = self.syn2.init_synaptic()
 
         self.spk_in_rec = []  # Record the output trace of spikes
         self.mem_in_rec = []  # Record the output trace of membrane potential
