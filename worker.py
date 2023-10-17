@@ -15,7 +15,7 @@ import gym
 from tqdm import tqdm
 from CartPole_modified import CartPole_fake
 # import actor-critics
-from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN,ActorCriticSNN_LIF_Small, ActorCriticSNN_SYN_Small
+from actor_critics import ActorCriticSNN_LIF, ActorCritic_ANN,ActorCriticSNN_LIF_Smallest, ActorCriticSNN_SYN_Small
 
 
 
@@ -46,7 +46,7 @@ class MasterModel(mp.Process):
         self.state_size = self.env.observation_space.shape[0]
         self.action_size = self.env.action_space
         
-        self.max_episodes = 5e3
+        self.max_episodes = 10e3
         self.spiking = args['spiking']
         self.device  = args['device']
         self.args = args
@@ -55,7 +55,7 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_SYN_Small(self.state_size, self.action_size,
+            self.global_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
@@ -81,7 +81,7 @@ class MasterModel(mp.Process):
         terminal = False
 
         # print('Interacting with environment')
-        while not terminal and t_sim < 2000:
+        while not terminal and t_sim < 200:
 
             # state to tensor
             state = torch.from_numpy(state).to(self.device)
@@ -177,8 +177,8 @@ class Worker(mp.Process):
     gloabl_MA      = 0
     best_score     = 0
     save_lock      = mp.Lock()
-    t_sim_max      = 2000
-    total_runs     = int(5e3)
+    t_sim_max      = 200
+    total_runs     = int(10e3)
 
     def __init__(self, global_model, global_counter, game_name, save_dir, nr_workers, **args):
         super(Worker, self).__init__(group=None)
@@ -197,7 +197,7 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_SYN_Small(self.state_size, self.action_size,
+            self.local_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
@@ -320,8 +320,11 @@ class Worker(mp.Process):
             else:
                 value_loss = 0
                 policy_loss = 0
-            
+
+        spike_sparsity_loss = torch.sum(torch.stack(self.local_model.spk_in_rec)) / len_counter
+
         loss_eval = (policy_loss * POLICY_LOSS_COEF+ value_loss * VALUE_LOSS_COEF ) / len_counter
+        loss_eval += (spike_sparsity_loss*1e-3 + 1/(spike_sparsity_loss+1))
 
         return loss_eval
         

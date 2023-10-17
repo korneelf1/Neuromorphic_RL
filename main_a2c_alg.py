@@ -12,7 +12,7 @@ def main():
     print('Device in use: ', str(device))
     print('Number of CPUs: ', str(mp.cpu_count()))
     args = {
-        'spiking' : False,
+        'spiking' : True,
         'device' : device,
         'save_dir': '\past_trainings',
         'lr': 1e-4,

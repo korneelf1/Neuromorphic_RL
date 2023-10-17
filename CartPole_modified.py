@@ -10,7 +10,7 @@ class CartPole_fake:
         self.env = gym.make("CartPole-v1", max_episode_steps=5000)
         self.action_space = Discrete(2)
         self.observation_space = self.env.observation_space
-        self.env.tau = 0.005
+        self.env.tau = 0.05
     def reset(self):
         return self.env.reset()
 

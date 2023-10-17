@@ -4,6 +4,8 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
 
 # spiking packages
 import snntorch as snn
@@ -430,7 +432,133 @@ class ActorCriticSNN_LIF_Small(torch.nn.Module):
 
         return val, actions
     
+class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
+    def __init__(self, num_inputs, action_space, inp_min = torch.tensor([0,0]), inp_max=  torch.tensor([1,1]),bias=False, nr_passes = 1 ):
+        super(ActorCriticSNN_LIF_Smallest, self).__init__()
+        self.spike_grad = surrogate.FastSigmoid.apply
+        num_outputs = action_space.n
+
+        beta = 0.3
+        self.nr_passes = nr_passes
+
+        self.lin1 = nn.Linear(num_inputs, 150)
+        self.lif1 = snn.Leaky(beta = .45, spike_grad=self.spike_grad, learn_beta=True)
+
+        # basically not spiking final layer
+        num_outputs = action_space.n
+        self.critic_linear = nn.Linear(150, 1)
+        self.lif_critic = snn.Leaky(beta = 0, spike_grad=self.spike_grad, learn_beta=False,reset_mechanism='none')
+
+        self.actor_linear = nn.Linear(150, num_outputs)
+        self.lif_actor = snn.Leaky(beta = 0, spike_grad=self.spike_grad, learn_beta=False, reset_mechanism='none')
+
+     
+       # membranes at t = 0
+        self.mem1     = self.lif1.init_leaky()
+        self.mem2     = self.lif_critic.init_leaky()
+        self.mem3     = self.lif_actor.init_leaky()
+
+        self.inp_min = inp_min
+        self.inp_max = inp_max
+
+        self.train()
+
+        self.inputs = []
+        
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+
+
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
+        
+    def init_mem(self):
+        self.inputs = []
+        self.mem1     = self.lif1.init_leaky()
+        self.mem2     = self.lif_critic.init_leaky()
+        self.mem3     = self.lif_actor.init_leaky()
+
+        self.spk_in_rec = []  # Record the output trace of spikes
+        self.mem_in_rec = []  # Record the output trace of membrane potential
+
+        self.spk1_rec = []  # Record the output trace of spikes
+        self.mem1_rec = []  # Record the output trace of membrane potential
+        
+        self.spk2_rec = []  # Record the output trace of spikes
+        self.mem2_rec = []  # Record the output trace of membrane potential
+
+        self.spk3_rec = []  # Record the output trace of spikes
+        self.mem3_rec = []  # Record the output trace of membrane potential
+
+
+    def forward(self, inputs, nr_passes = 1):
+        
+        for i in range(self.nr_passes):
+            inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
+
+            inputs = inputs.to(torch.float32)
+
+            # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
+            cur1 = self.lin1(inputs)
+            spk1, self.mem1 = self.lif1(cur1, self.mem1)
+
+
+
+        actions =  self.actor_linear(spk1)
+        spk_actions,self.mem2 = self.lif_actor(actions, self.mem2)
+        val = self.critic_linear(spk1)
+        val, self.mem3 = self.lif_critic(val, self.mem3)
+        # add information for plotting purposes
+        self.inputs.append(inputs.squeeze(0).detach().numpy())
+        self.spk_in_rec.append(spk1)  # Record the output trace of spikes
+        self.mem_in_rec.append(self.mem1.squeeze(0).detach().numpy())  # Record the output trace of membrane potential
+
+        self.spk1_rec.append(spk_actions.squeeze(0).detach().numpy())  # Record the output trace of spikes
+        self.mem2_rec.append(self.mem2.squeeze(0).detach().numpy())  # Record the output trace of membrane potential
+        self.mem3_rec.append(self.mem3.squeeze(0).detach().numpy())  # Record the output trace of membrane potential
+        val = self.mem3
+        actions = self.mem2
+        return val, actions
     
+
+    def plot_spikes(self):
+        print("Plotting spikes\n\n\n")
+        # print(self.inputs)
+        fig, ax = plt.subplots()
+
+        def animate(i):
+            ax.clear()
+            ax.set_xlim(-1, 150)
+            ax.set_ylim(-1, 3)
+
+            # plot input neurons
+            for j in range(4):
+                ax.add_artist(plt.Circle((j, 0), 0.2, color=plt.cm.Reds(self.inputs[i][j])))
+
+            # plot spikes_1
+            for j in range(100):
+                ax.add_artist(plt.Circle((j, 1), 0.2, color=plt.cm.Blues(self.spk_in_rec[i][j])))
+
+            # plot spikes_2
+            for j in range(2):
+                ax.add_artist(plt.Circle((j, 2), 0.2, color=plt.cm.Greens(self.mem2_rec[i][j])))
+            
+            for j in range(1):
+                ax.add_artist(plt.Circle((j, 2.5), 0.2, color=plt.cm.Greens(self.mem3_rec[i][j])))
+
+        ani = animation.FuncAnimation(fig, animate, frames=len(self.inputs), interval=50)
+        plt.show()
+
+
+
+        
+
 class ActorCriticSNN_SYN_Small(torch.nn.Module):
     def __init__(self, num_inputs, action_space, inp_min = torch.tensor([0,0]), inp_max=  torch.tensor([1,1]),bias=False, nr_passes = 1 ):
         super(ActorCriticSNN_SYN_Small, self).__init__()
@@ -523,13 +651,13 @@ class ActorCriticSNN_SYN_Small(torch.nn.Module):
 class ActorCritic_ANN(torch.nn.Module):
     def __init__(self, num_inputs, action_space):
         super(ActorCritic_ANN, self).__init__()
-        self.lin1 = nn.Linear(num_inputs, 320)
-        self.lin2 = nn.Linear(320, 320)
+        self.lin1 = nn.Linear(num_inputs, 100)
+        # self.lin2 = nn.Linear(320, 320)
  
 
         num_outputs = action_space.n
-        self.critic_linear = nn.Linear(320, 1)
-        self.actor_linear = nn.Linear(320, num_outputs)
+        self.critic_linear = nn.Linear(100, 1)
+        self.actor_linear = nn.Linear(100, num_outputs)
 
         self.train()
 
@@ -537,6 +665,6 @@ class ActorCritic_ANN(torch.nn.Module):
         inputs = inputs.to(torch.float32)
 
         x = F.elu(self.lin1(inputs))
-        x = F.elu(self.lin2(x))
+        # x = F.elu(self.lin2(x))
 
         return self.critic_linear(x), self.actor_linear(x)
