@@ -1,20 +1,29 @@
 import torch
 import helper_functions as hf
 import gym
+import snntorch
+import numpy as np
+neuron = snntorch.Leaky(0.8, reset_mechanism='none')
+state = neuron.init_leaky()
+def charge_neuron(state, input):
+    input = torch.tensor(input)
+    spike, state = neuron(input, state)
+    return state
+    
 
-env = gym.make("MountainCar-v0", render_mode = 'human')
+inputs = np.zeros(100)
+inputs[1] = -.1
+inputs[10] = -.5
+inputs[50] = -1.5
+inputs[60] = 1.5
 
-actor = hf.Feedforward(2,3,3,120)
-actor.load_state_dict(torch.load('actor_500.txt'))
-actor.eval()
+states = []
+for input in inputs:
+    state = charge_neuron(state, input)
+    states.append(state.detach().numpy())
 
-state, info = env.reset()
-
-terminal = False
-while not terminal:
-    state = torch.from_numpy(state)
-    action = actor(state.unsqueeze(0)).argmax()
-
-    state, _, terminal, _, _ = env.step(int(action))
-    print(action)
-env.close()
+import matplotlib.pyplot as plt
+plt.plot(inputs)
+plt.show()
+plt.plot(states)
+plt.show()

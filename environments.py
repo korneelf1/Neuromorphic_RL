@@ -2,8 +2,13 @@ import gym
 from gym import spaces
 # import pygame
 import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+import time
+from gym.utils import play
 
-
+import gymnasium
 class GridWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
@@ -222,3 +227,352 @@ class SimpleGrid():
             terminal = True
         self.state = np.array([new_x,new_y,self.x_t,self.y_t])
         return self.state, reward, terminal, 0,0
+    
+
+class SimpleDrone(gym.Env):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.1, dt = 0.01):
+        self.mass = mass
+        self.g = 9.81
+        self.dt = dt
+
+        self._agent_location = 5
+        self._agent_velocity = 0
+
+        self._target_location = 0
+        self._target_velocity = 0
+
+        self.reward = 0 # -height for each timestep -100 for crash + 250 for landing under 0.1m/s
+        self.landing_velocity = -landing_velocity
+
+        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2],[.5]]), shape=(2,1))
+
+        self.max_thrust = 50
+        self.trajectory = []
+        self.thrust = []
+        self.times = []
+        self.velocities = []
+        self.counter = 0
+        self.render_mode = render_mode
+#  Create a figure and axis for the plot
+        self.fig, self.ax = plt.subplots()
+        self.line_trajectory, = self.ax.plot([], [], label='Trajectory')
+        self.line_velocities, = self.ax.plot([], [], label='Velocities')
+        self.line_thrust, = self.ax.plot([], [], label='Thrust')
+
+        # Set up the legend
+        self.ax.legend(loc='upper right')
+        
+
+    def _get_obs(self):
+        # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
+        # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
+        obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1)
+        return torch.tensor(obs)
+    
+    def reset(self, seed=None, options=None):
+        # self._agent_location = np.random.randint(2,10)
+        self._agent_location = 2
+        # self._agent_velocity = np.random.randint(-5,5)*.1
+        self._agent_velocity = 0
+        self.reward = 0
+
+        self.trajectory = []
+        self.times = []
+        self.thrust = []
+        self.velocities = []
+        self.counter = 0
+        self.thrust_last = 0
+
+        self.line_trajectory.set_data([], [])
+        self.line_velocities.set_data([], [])
+        self.line_thrust.set_data([], [])
+        return self._get_obs(),{}
+    
+    def step(self, action, hover=False):
+        '''Instead of learning total thrust, learn delta thrust wrt hover'''
+        terminal = False
+        truncated = False
+        done = False
+        self.thrust_last = action
+
+        acceleration = -self.g + self.max_thrust*action/self.mass
+        if hover:
+            acceleration += self.g
+        self._agent_velocity += acceleration*self.dt
+        self._agent_location += self._agent_velocity*self.dt
+
+        crash = False
+        if self._agent_location < 0:
+            if self._agent_velocity > self.landing_velocity:
+                terminal = True
+                truncated = True
+                done = True
+                crash = False
+
+                print(self._agent_location)
+                print("Landed!\nResults: ", self._agent_location, self._agent_velocity)
+            else:
+                terminal = True
+                truncated = True
+                crash = True
+                print('Crash')
+        elif self._agent_location > 2.2:
+            terminal = True
+            truncated = True
+            print('Too High')
+
+            # Calculate shaped rewards
+        distance_to_target = abs(self._agent_location - self._target_location)
+        distance_reward = 1/(1+distance_to_target)
+
+        smooth_landing_reward = 250*np.exp(-self._agent_velocity**2)
+
+        energy_penalty = 0.01*abs(action)
+
+        if self.counter % 10 == 0:
+            progress_reward = 1
+        else:
+            progress_reward = 0
+
+        if abs(self._agent_velocity) < 0.1:
+            hover_reward = 0.1
+        else:
+            hover_reward = 0
+
+        if crash:
+            self.reward -= 100
+
+        self.reward += distance_reward + smooth_landing_reward - energy_penalty + progress_reward + hover_reward
+        
+        self.counter +=1
+        self.times.append(self.counter)
+        self.trajectory.append(self._agent_location)
+        self.velocities.append(self._agent_velocity)
+        self.thrust.append(action)
+        info = {}
+        info['distance'] = self._agent_location
+
+        return self._get_obs(), self.reward, terminal, truncated, info
+    
+
+    def render(self, mode='human'):
+        # self.add_data_point(self.counter, self._agent_location, self._agent_velocity, self.thrust_last)
+        if mode == 'post':
+            plt.plot(self.times, self.trajectory)
+            plt.plot(self.times, self.velocities)
+            plt.plot(self.times, self.thrust)
+            plt.show()
+                
+
+        elif mode == 'human':
+            self.line_trajectory.set_data(self.times, self.trajectory)
+            self.line_velocities.set_data(self.times, self.velocities)
+            self.line_thrust.set_data(self.times, self.thrust)
+
+            # Adjust the plot's axis limits if needed
+            self.ax.relim()
+            self.ax.autoscale_view()
+
+            # Display the updated plot
+            plt.draw()
+            plt.pause(0.01)  # Add a small delay to update the plot
+
+    def add_data_point(self, time, trajectory, velocities, thrust):
+        self.times.append(time)
+        self.trajectory.append(trajectory)
+        self.velocities.append(velocities)
+        self.thrust.append(thrust)
+            
+
+    def close(self):
+        pass
+
+class SimpleDrone_Discrete(gym.Env):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.1, dt = 0.01):
+        self.mass = mass
+        self.g = 9.81
+        self.dt = dt
+
+        self._agent_location = 5
+        self._agent_velocity = 0
+
+        self._target_location = 0
+        self._target_velocity = 0
+
+        self.reward = 0 # -height for each timestep -100 for crash + 250 for landing under 0.1m/s
+        self.landing_velocity = -landing_velocity
+
+        self.action_space = gym.spaces.Discrete(10)
+        self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2],[.5]]), shape=(2,1))
+
+        self.max_thrust = 50
+        self.trajectory = []
+        self.thrust = []
+        self.times = []
+        self.velocities = []
+        self.counter = 0
+        self.render_mode = render_mode
+#  Create a figure and axis for the plot
+        self.fig, self.ax = plt.subplots()
+        self.line_trajectory, = self.ax.plot([], [], label='Trajectory')
+        self.line_velocities, = self.ax.plot([], [], label='Velocities')
+        self.line_thrust, = self.ax.plot([], [], label='Thrust')
+
+        # Set up the legend
+        self.ax.legend(loc='upper right')
+        
+
+    def _get_obs(self):
+        # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
+        # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
+        obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1)
+        return torch.tensor(obs)
+    
+    def reset(self, seed=None, options=None):
+        # self._agent_location = np.random.randint(2,10)
+        self._agent_location = 2
+        # self._agent_velocity = np.random.randint(-5,5)*.1
+        self._agent_velocity = 0
+        self.reward = 0
+
+        self.trajectory = []
+        self.times = []
+        self.thrust = []
+        self.velocities = []
+        self.counter = 0
+        self.thrust_last = 0
+
+        self.line_trajectory.set_data([], [])
+        self.line_velocities.set_data([], [])
+        self.line_thrust.set_data([], [])
+        return self._get_obs(),{}
+    
+
+    def action_to_thrust(self, action, hover = True):
+        '''Converts discrete action to thrust value'''
+        steps = self.action_space.n
+        hover_T = 0
+        if hover:
+            hover_T = self.g*self.mass
+        return self.max_thrust*(action - steps/2)/steps + hover_T
+
+
+    def step(self, action):
+        '''Instead of learning total thrust, learn delta thrust wrt hover'''
+        terminal = False
+        truncated = False
+        done = False
+        self.thrust_last = action
+        action = self.action_to_thrust(action, hover=True)
+
+
+        self.reward = 0
+
+        acceleration = -self.g + self.max_thrust*action/self.mass  # learn wrt hover
+        self._agent_velocity += acceleration*self.dt
+        self._agent_location += self._agent_velocity*self.dt
+
+        crash = False
+        if np.abs(self._agent_location) < 0.05:
+            if np.abs(self._agent_velocity) < self.landing_velocity:
+                terminal = True
+                truncated = True
+                done = True
+                crash = False
+                self.reward += 100
+                # print(self._agent_location)
+                print("Landed!\nResults: ", self._agent_location, self._agent_velocity)
+            else:
+                terminal = True
+                truncated = True
+                crash = True
+                self.reward -= 25
+                print('Crash')
+        if self._agent_location > 2.2:
+            terminal = True
+            truncated = True
+            self.reward -= 25
+            # print('Too High')
+
+
+        if self._agent_velocity > 0:
+            self.reward -=1
+        else:
+            self.reward +=.05
+        if self._agent_location <0:
+            terminal=True
+
+        
+        self.counter +=1
+        self.times.append(self.counter)
+        self.trajectory.append(self._agent_location)
+        self.velocities.append(self._agent_velocity)
+        self.thrust.append(action)
+        info = {}
+        info['distance'] = self._agent_location
+
+        return self._get_obs(), self.reward, terminal, truncated, info
+        
+
+        # self.add_data_point(self.counter, self._agent_location, self._agent_velocity, self.thrust_last)
+        if mode == 'post':
+            plt.figure()
+            plt.plot(self.times, self.trajectory)
+            plt.plot(self.times, self.velocities)
+            plt.plot(self.times, self.thrust)
+            plt.show()
+                
+
+        elif mode == 'human':
+            self.line_trajectory.set_data(self.times, self.trajectory)
+            self.line_velocities.set_data(self.times, self.velocities)
+            self.line_thrust.set_data(self.times, self.thrust)
+
+            # Adjust the plot's axis limits if needed
+            self.ax.relim()
+            self.ax.autoscale_view()
+
+            # Display the updated plot
+            plt.draw()
+            plt.pause(0.01)  # Add a small delay to update the plot
+
+    def add_data_point(self, time, trajectory, velocities, thrust):
+        self.times.append(time)
+        self.trajectory.append(trajectory)
+        self.velocities.append(velocities)
+        self.thrust.append(thrust)
+            
+
+    def close(self):
+        pass
+
+
+gym.register("SimpleDroneDiscrete-v0", entry_point=SimpleDrone_Discrete) 
+# gym.register("SimpleDrone-v0", entry_point=SimpleDrone) 
+from stable_baselines3 import PPO
+
+
+# Create the environment
+env = gym.make("SimpleDroneDiscrete-v0")
+env.reset()
+# done = False
+# while not done:
+#     _,_,done,_,_ = env.step(np.array(0))
+# env.render(mode='post')
+# Create the model 
+# model = A2C("MlpPolicy", env, verbose=1)
+model = PPO("MlpPolicy", env, verbose=1)
+# Train the agent
+model.learn(total_timesteps=1000000) 
+
+# Save the trained agent
+model.save("a2c_drone")
+
+# Test the trained agent
+obs,_ = env.reset()
+# obs = np.array(obs).reshape(2,1)
+for i in range(1000):
+  action, _states = model.predict(obs)
+  obs, rewards, terminal,truncated, info = env.step(action)
+#   env.render()

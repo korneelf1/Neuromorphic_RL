@@ -6,11 +6,12 @@ from gym.spaces import Discrete, Dict, Box
 
 
 class CartPole_fake:
-    def __init__(self, config=None):
+    def __init__(self, config=None, dt = 0.05):
         self.env = gym.make("CartPole-v1", max_episode_steps=5000)
         self.action_space = Discrete(2)
         self.observation_space = self.env.observation_space
-        self.env.tau = 0.05
+        self.env.tau = dt
+        self.env.force_mag = self.env.force_mag*dt/0.05 # scale force 
     def reset(self):
         return self.env.reset()
 
