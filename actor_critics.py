@@ -433,24 +433,24 @@ class ActorCriticSNN_LIF_Small(torch.nn.Module):
         return val, actions
     
 class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
-    def __init__(self, num_inputs, action_space, inp_min = torch.tensor([0,0]), inp_max=  torch.tensor([1,1]),bias=False, nr_passes = 1 ):
+    def __init__(self, num_inputs, action_space, hidden_size=246, inp_min = torch.tensor([0,-2]), inp_max=  torch.tensor([2,2]),bias=False, nr_passes = 1 ):
         super(ActorCriticSNN_LIF_Smallest, self).__init__()
         self.spike_grad = surrogate.FastSigmoid.apply
-        num_outputs = action_space.n
+        # self.spike_grad = surrogate.fast_sigmoid(slope=25)
 
         beta = 0.3
         self.nr_passes = nr_passes
 
-        self.lin1 = nn.Linear(num_inputs, 246)
-        self.lif1 = snn.Leaky(beta = .45, spike_grad=self.spike_grad, learn_beta=True)
+        self.lin1 = nn.Linear(num_inputs, hidden_size)
+        self.lif1 = snn.Leaky(beta = .5, spike_grad=self.spike_grad, learn_beta=False)
 
         # basically not spiking final layer
         num_outputs = action_space.n
-        self.critic_linear = nn.Linear(246, 1)
-        self.lif_critic = snn.Leaky(beta = 0, spike_grad=self.spike_grad, learn_beta=False,reset_mechanism='none')
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.lif_critic = snn.Leaky(beta = 0.25, spike_grad=self.spike_grad, learn_beta=True,reset_mechanism='none')
 
-        self.actor_linear = nn.Linear(246, num_outputs)
-        self.lif_actor = snn.Leaky(beta = 0, spike_grad=self.spike_grad, learn_beta=False, reset_mechanism='none')
+        self.actor_linear = nn.Linear(hidden_size, num_outputs)
+        self.lif_actor = snn.Leaky(beta = 0.25, spike_grad=self.spike_grad, learn_beta=True, reset_mechanism='none')
 
      
        # membranes at t = 0
@@ -531,10 +531,10 @@ class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
         print("Plotting spikes\n\n\n")
         # print(self.inputs)
         fig, ax = plt.subplots()
-
+        print(self.lin1.weight.data.shape)
         def animate(i):
             ax.clear()
-            ax.set_xlim(-1, 150)
+            ax.set_xlim(-1, 250)
             ax.set_ylim(-1, 3)
 
             # plot input neurons
@@ -542,7 +542,7 @@ class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
                 ax.add_artist(plt.Circle((j, 0), 0.2, color=plt.cm.Reds(self.inputs[i][j])))
 
             # plot spikes_1
-            for j in range(100):
+            for j in range(246):
                 ax.add_artist(plt.Circle((j, 1), 0.2, color=plt.cm.Blues(self.spk_in_rec[i][j])))
 
             # plot spikes_2
@@ -802,14 +802,14 @@ class ActorCritic_ANN(torch.nn.Module):
 
 
 class ActorCritic_ANN_Smallest(torch.nn.Module):
-    def __init__(self, num_inputs, action_space):
+    def __init__(self, num_inputs, action_space, hidden_size = 246):
         super(ActorCritic_ANN_Smallest, self).__init__()
-        self.lin1 = nn.Linear(num_inputs, 246)
+        self.lin1 = nn.Linear(num_inputs, hidden_size)
  
 
         num_outputs = action_space.n
-        self.critic_linear = nn.Linear(246, 1)
-        self.actor_linear = nn.Linear(246, num_outputs)
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.actor_linear = nn.Linear(hidden_size, num_outputs)
 
         self.train()
 

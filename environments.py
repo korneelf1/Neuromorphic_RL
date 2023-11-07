@@ -404,13 +404,15 @@ class SimpleDrone_Discrete(gym.Env):
         self.landing_velocity = -landing_velocity
 
         self.action_space = gym.spaces.Discrete(10)
-        self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2],[.5]]), shape=(2,1))
+        self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
 
-        self.max_thrust = 50
+        self.max_thrust = 15
+        self.max_acc = self.max_thrust/self.mass
         self.trajectory = []
         self.thrust = []
         self.times = []
         self.velocities = []
+        self.accelerations = []
         self.counter = 0
         self.render_mode = render_mode
 #  Create a figure and axis for the plot
@@ -426,14 +428,33 @@ class SimpleDrone_Discrete(gym.Env):
     def _get_obs(self):
         # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
         # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
+        # obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1).squeeze()
         obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1)
-        return torch.tensor(obs)
-    
+        return obs
+    def reward_function(self,z, vz,thrust, done):
+
+        reward = 0
+
+        # Penalize for deviation from target height
+        reward -= abs(z)
+
+        # Penalize for speed
+        reward -= np.abs(vz)
+
+        # Big penalty for crashing 
+        if np.abs(z) > 2.2 or (np.abs(z) < 0.1 and np.abs(vz) > 0.1):
+            reward -= 100
+
+        # Big reward for soft landing
+        if np.abs(vz) < 0.1 and z < 0.1: 
+            reward += 100
+
+        return reward
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
-        self._agent_location = 2
+        self._agent_location = 2.
         # self._agent_velocity = np.random.randint(-5,5)*.1
-        self._agent_velocity = 0
+        self._agent_velocity = 0.
         self.reward = 0
 
         self.trajectory = []
@@ -446,64 +467,49 @@ class SimpleDrone_Discrete(gym.Env):
         self.line_trajectory.set_data([], [])
         self.line_velocities.set_data([], [])
         self.line_thrust.set_data([], [])
+        
         return self._get_obs(),{}
     
 
-    def action_to_thrust(self, action, hover = True):
+    def action_to_acc(self, action, hover = True):
         '''Converts discrete action to thrust value'''
         steps = self.action_space.n
-        hover_T = 0
-        if hover:
-            hover_T = self.g*self.mass
-        return self.max_thrust*(action - steps/2)/steps + hover_T
+        return self.max_acc*(action - steps/2)/steps 
 
 
     def step(self, action):
         '''Instead of learning total thrust, learn delta thrust wrt hover'''
         terminal = False
         truncated = False
-        done = False
         self.thrust_last = action
-        action = self.action_to_thrust(action, hover=True)
 
+        acceleration = self.action_to_acc(action, hover=False) # learn wrt hover or wrt zero acc
+        self.accelerations.append(acceleration)
+        acceleration_low_passed = 0.4*acceleration + 0.3*self.accelerations[-1]+ 0.3*self.accelerations[-2]  if len(self.accelerations)>1 else acceleration
+        
+        self._agent_velocity += acceleration_low_passed*self.dt
 
-        self.reward = 0
-
-        acceleration = -self.g + self.max_thrust*action/self.mass  # learn wrt hover
-        self._agent_velocity += acceleration*self.dt
         self._agent_location += self._agent_velocity*self.dt
 
-        crash = False
-        if np.abs(self._agent_location) < 0.05:
-            if np.abs(self._agent_velocity) < self.landing_velocity:
+  
+        self.reward = self.reward_function(self._agent_location, self._agent_velocity, action, terminal)
+        if np.abs(self._agent_location) > 2.2:
+            terminal = True
+            truncated = True
+            # self.reward -= 50
+            # print('Too High')
+
+            # Calculate shaped rewards
+        elif np.abs(self._agent_location)<0.1:
+            if np.abs(self._agent_velocity) < 0.1:
                 terminal = True
                 truncated = True
-                done = True
-                crash = False
-                self.reward += 100
-                # print(self._agent_location)
-                print("Landed!\nResults: ", self._agent_location, self._agent_velocity)
+                # self.reward +=100
+                print('Landed')
             else:
                 terminal = True
                 truncated = True
-                crash = True
-                self.reward -= 25
-                print('Crash')
-        if self._agent_location > 2.2:
-            terminal = True
-            truncated = True
-            self.reward -= 25
-            # print('Too High')
-
-
-        if self._agent_velocity > 0:
-            self.reward -=1
-        else:
-            self.reward +=.05
-        if self._agent_location <0:
-            terminal=True
-
-        
+                # print('Crash')
         self.counter +=1
         self.times.append(self.counter)
         self.trajectory.append(self._agent_location)
@@ -515,6 +521,7 @@ class SimpleDrone_Discrete(gym.Env):
         return self._get_obs(), self.reward, terminal, truncated, info
         
 
+    def render(self, mode='human'):
         # self.add_data_point(self.counter, self._agent_location, self._agent_velocity, self.thrust_last)
         if mode == 'post':
             plt.figure()
@@ -549,22 +556,22 @@ class SimpleDrone_Discrete(gym.Env):
 
 
 gym.register("SimpleDroneDiscrete-v0", entry_point=SimpleDrone_Discrete) 
-# gym.register("SimpleDrone-v0", entry_point=SimpleDrone) 
-from stable_baselines3 import PPO
+# # gym.register("SimpleDrone-v0", entry_point=SimpleDrone) 
+from stable_baselines3 import A2C
 
 
-# Create the environment
+# # Create the environment
 env = gym.make("SimpleDroneDiscrete-v0")
 env.reset()
-# done = False
-# while not done:
-#     _,_,done,_,_ = env.step(np.array(0))
-# env.render(mode='post')
+done = False
+while not done:
+    _,_,done,_,_ = env.step(np.array(0))
+env.render(mode='post')
 # Create the model 
-# model = A2C("MlpPolicy", env, verbose=1)
-model = PPO("MlpPolicy", env, verbose=1)
+model = A2C("MlpPolicy", env, verbose=1)
+# model = PPO("MlpPolicy", env, verbose=1)
 # Train the agent
-model.learn(total_timesteps=1000000) 
+model.learn(total_timesteps=1e6) 
 
 # Save the trained agent
 model.save("a2c_drone")
@@ -575,4 +582,4 @@ obs,_ = env.reset()
 for i in range(1000):
   action, _states = model.predict(obs)
   obs, rewards, terminal,truncated, info = env.step(action)
-#   env.render()
+  env.render()

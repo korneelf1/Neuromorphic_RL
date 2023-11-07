@@ -14,7 +14,7 @@ from collections import namedtuple, deque
 import gym
 from tqdm import tqdm
 from CartPole_modified import CartPole_fake
-# from environments import SimpleDrone
+# from environments import SimpleDrone_Discrete
 # import actor-critics
 from actor_critics import ActorCriticSNN_LIF_Small, ActorCritic_ANN,ActorCriticSNN_LIF_Smallest, ActorCritic_ANN_Smallest, ActorCritic_ANN_Cont, ActorCriticSNN_LIF_Smallest_Cont
 
@@ -31,7 +31,7 @@ LAMBDA_G = .9
 ENTROPY_COEF = 1e-2
 VALUE_LOSS_COEF = .5
 POLICY_LOSS_COEF = 1
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-4
 WEIGHT_DECAY = None
 MAX_GRAD_NORM = 1.5
 WARM_UP = 0
@@ -394,7 +394,7 @@ class Worker(mp.Process):
 class MasterModel(mp.Process):
     def __init__(self, **args) -> None:
         super(MasterModel, self).__init__()
-        self.game_name = 'CartPole-v1'
+        self.game_name = 'Drone'
         self.lr = args['lr']
         self.betas = args['betas']
         save_dir = args['save_dir']
@@ -404,6 +404,7 @@ class MasterModel(mp.Process):
 
         self.dt = args['dt']
         self.env = CartPole_fake(dt=self.dt)
+        # self.env = SimpleDrone_Discrete(dt=self.dt)
         self.state_size = self.env.observation_space.shape[0]
         self.action_size = self.env.action_space
         
@@ -417,12 +418,12 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
+            self.global_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
         else:
-            self.global_model = ActorCritic_ANN_Smallest(self.state_size, self.action_size).to(self.device)  # global network
+            self.global_model = ActorCritic_ANN(self.state_size, self.action_size).to(self.device)  # global network
         # shared memory for gradients:
         # self.gradient_acc= torch.zeros(self.global_model.parameters()).share_memory()
         self.opt = torch.optim.Adam(self.global_model.parameters(), lr = args['lr'], betas= args['betas'])
@@ -475,7 +476,7 @@ class MasterModel(mp.Process):
 
         time_finish = t_sim   
     
-        return time_finish
+        return time_finish, reward
     
     def run(self):
         EVALUATION_INTERVAL = 0
@@ -492,12 +493,18 @@ class MasterModel(mp.Process):
                     EVALUATION_INTERVAL += 100
                     # self.save_model()
                     t = 0
+                    reward = 0
                     for i in range(5):
-                        t += self.interact()
+                        t_cur, reward_cur = self.interact()
+                        t += t_cur
+                        reward += reward_cur
                     t = t/5
+                    reward = reward/5
                     self.episode_times.append(t)
+                    
 
                     print('Time to failure: ', t)
+                    print('Reward: ', reward)
 
                 
                 progress_bar.update(1)
@@ -561,6 +568,7 @@ class Worker(mp.Process):
         self.game_name = game_name
         self.dt = args['dt']
         self.env = CartPole_fake(self.dt)
+        # self.env = SimpleDrone_Discrete(dt=self.dt)
         self.save_dir = save_dir
         self.t_sim_max = args['max_episode_length']
         self.total_runs = args['nr_episodes']
@@ -574,14 +582,14 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
+            self.local_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
                                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
             self.local_model.load_state_dict(self.global_model.state_dict())
 
         else:
-            self.local_model = ActorCritic_ANN_Smallest(self.state_size, self.action_size).to(self.device)  # global network
+            self.local_model = ActorCritic_ANN(self.state_size, self.action_size).to(self.device)  # global network
             self.local_model.load_state_dict(self.global_model.state_dict())
 
         self.opt = self.opt = torch.optim.Adam(self.local_model.parameters(), 
@@ -617,7 +625,6 @@ class Worker(mp.Process):
             state = add_noise(state, gain=self.noise_gain)
             # state to tensor
             state = torch.from_numpy(state).to(self.device)
-
             # get network outputs on given state
             value, policy = self.local_model(state.unsqueeze(0))
 

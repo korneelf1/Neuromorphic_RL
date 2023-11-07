@@ -1,5 +1,7 @@
 import torch
-
+'''
+This manual implementation is required to be able to pickle 
+the model for parallelization'''
 def fast_sigmoid_forward(ctx, input_, slope):
     ctx.save_for_backward(input_)
     ctx.slope = slope
