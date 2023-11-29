@@ -442,7 +442,7 @@ class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
         self.nr_passes = nr_passes
 
         self.lin1 = nn.Linear(num_inputs, hidden_size)
-        self.lif1 = snn.Leaky(beta = .5, spike_grad=self.spike_grad, learn_beta=False)
+        self.lif1 = snn.Leaky(beta = .5, spike_grad=self.spike_grad, learn_beta=True)
 
         # basically not spiking final layer
         num_outputs = action_space.n
@@ -478,7 +478,7 @@ class ActorCriticSNN_LIF_Smallest(torch.nn.Module):
         self.spk3_rec = []  # Record the output trace of spikes
         self.mem3_rec = []  # Record the output trace of membrane potential
         
-    def init_mem(self):
+    def init_mem(self, random= False):
         self.inputs = []
         self.mem1     = self.lif1.init_leaky()
         self.mem2     = self.lif_critic.init_leaky()

@@ -14,7 +14,7 @@ from collections import namedtuple, deque
 import gym
 from tqdm import tqdm
 from CartPole_modified import CartPole_fake
-# from environments import SimpleDrone_Discrete
+from environments import SimpleDrone_Discrete
 # import actor-critics
 from actor_critics import ActorCriticSNN_LIF_Small, ActorCritic_ANN,ActorCriticSNN_LIF_Smallest, ActorCritic_ANN_Smallest, ActorCritic_ANN_Cont, ActorCriticSNN_LIF_Smallest_Cont
 
@@ -28,7 +28,8 @@ def add_noise(state, gain=0.1):
 # global model parameters
 GAMMA = .98
 LAMBDA_G = .9
-ENTROPY_COEF = 1e-2
+ENTROPY_COEF = 1
+ENTROPY_COEF_end = 1e-3
 VALUE_LOSS_COEF = .5
 POLICY_LOSS_COEF = 1
 LEARNING_RATE = 1e-4
@@ -403,13 +404,14 @@ class MasterModel(mp.Process):
             os.makedirs(save_dir)
 
         self.dt = args['dt']
-        self.env = CartPole_fake(dt=self.dt)
-        # self.env = SimpleDrone_Discrete(dt=self.dt)
+        self.max_length = args['max_episode_length']
+
+        # self.env = CartPole_fake(dt=self.dt)
+        self.env = SimpleDrone_Discrete(dt=self.dt, max_episode_length=self.max_length)
         self.state_size = self.env.observation_space.shape[0]
         self.action_size = self.env.action_space
         
         self.max_episodes = args['nr_episodes']
-        self.max_length = args['max_episode_length']
         self.spiking = args['spiking']
         self.device  = args['device']
         self.args = args
@@ -418,9 +420,11 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
-                                                   inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
-                                                   inp_max=  torch.tensor([4.8, 10,0.418,2]), 
+            self.global_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
+                                                #    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
+                                                #    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
+                                                   inp_min = torch.tensor([0, -.5]), 
+                                                   inp_max=  torch.tensor([2.5, .5]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
         else:
             self.global_model = ActorCritic_ANN(self.state_size, self.action_size).to(self.device)  # global network
@@ -448,8 +452,7 @@ class MasterModel(mp.Process):
 
             # state to tensor
             state = torch.from_numpy(state).to(self.device)
-
-            # get network outputs on given state
+# get network outputs on given state
             value, policy = self.global_model(state.unsqueeze(0))
 
             # find probabilities of certain actions
@@ -466,12 +469,13 @@ class MasterModel(mp.Process):
             # get log probs of the actions taken
             
             # perform action
-            obs, reward, terminal, _, _ = env.step(int(action.squeeze(0)))
+            obs, reward, terminal, _, info = env.step(int(action.squeeze(0)))
 
 
             if not terminal:
                 state = obs
 
+            
             t_sim += 1
 
         time_finish = t_sim   
@@ -487,19 +491,24 @@ class MasterModel(mp.Process):
         for worker in self.workers:
             worker.start()
 
-        with tqdm(total=self.max_episodes) as progress_bar:
-            while self.global_episode <=self.max_episodes:
+        # with tqdm(total=self.max_episodes) as progress_bar:
+        #     while self.global_episode <=self.max_episodes:
+        for i in tqdm(range(int(self.max_episodes))):
                 if self.global_episode>EVALUATION_INTERVAL:
                     EVALUATION_INTERVAL += 100
                     # self.save_model()
                     t = 0
                     reward = 0
+                    landing = 0
                     for i in range(5):
                         t_cur, reward_cur = self.interact()
+                        # landing += info['landing']*1
                         t += t_cur
                         reward += reward_cur
                     t = t/5
                     reward = reward/5
+                    # if landing >=4:
+                    #     print('Landed 4 times in 5 episodes')
                     self.episode_times.append(t)
                     
 
@@ -507,7 +516,7 @@ class MasterModel(mp.Process):
                     print('Reward: ', reward)
 
                 
-                progress_bar.update(1)
+                # progress_bar.update(1)
                 gradients = []
                 total_timesteps = 0
                 # we want to normalize timesteps, reduce impact of shittier series with short time and increase with more time
@@ -544,6 +553,9 @@ class MasterModel(mp.Process):
                     
 
                 self.global_episode += 1
+                Worker.gloabl_MA = self.global_episode
+                # update entropy loss
+                # ENTROPY_COEF = max(1,min(ENTROPY_COEF_end,ENTROPY_COEF_end + (ENTROPY_COEF - ENTROPY_COEF_end)*np.exp(-1e-5*self.global_episode)))
                 
     def save_model(self, path=None):
         if path is None:
@@ -567,10 +579,11 @@ class Worker(mp.Process):
         self.global_episode = global_counter
         self.game_name = game_name
         self.dt = args['dt']
-        self.env = CartPole_fake(self.dt)
-        # self.env = SimpleDrone_Discrete(dt=self.dt)
-        self.save_dir = save_dir
         self.t_sim_max = args['max_episode_length']
+
+        # self.env = CartPole_fake(self.dt)
+        self.env = SimpleDrone_Discrete(dt=self.dt, max_episode_length=self.t_sim_max)
+        self.save_dir = save_dir
         self.total_runs = args['nr_episodes']
         self.ep_loss = 0.0
         self.state_size = self.env.observation_space.shape[0]
@@ -582,9 +595,11 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_LIF_Small(self.state_size, self.action_size,
-                                                   inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
-                                                   inp_max=  torch.tensor([4.8, 10,0.418,2]), 
+            self.local_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
+                                                #    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
+                                                #    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
+                                                   inp_min = torch.tensor([0, -.5]), 
+                                                   inp_max=  torch.tensor([2.5, .5]), 
                                                    bias=False,nr_passes = 1).to(self.device)  # global network
             self.local_model.load_state_dict(self.global_model.state_dict())
 
@@ -598,7 +613,7 @@ class Worker(mp.Process):
         self.T_lst = [] # list of times in environment
 
         self.train_cycles = 0
-
+        print('Now nr episodes is nr of updates of global model')
     def interact(self):
         env = self.env
 
@@ -698,7 +713,8 @@ class Worker(mp.Process):
                 delta_t = rewards[i] + GAMMA* values[i+1] - values[i]
                 g = g*GAMMA*LAMBDA_G + delta_t
 
-                policy_loss = policy_loss - log_probs[i]*g.detach() - entropies[i]*ENTROPY_COEF
+                curr_entropy_coeff = max(1,min(ENTROPY_COEF_end,ENTROPY_COEF_end + (ENTROPY_COEF - ENTROPY_COEF_end)*np.exp(-1e-5*Worker.gloabl_MA)))
+                policy_loss = policy_loss - log_probs[i]*g.detach() - entropies[i]*curr_entropy_coeff
 
             
             else:
@@ -733,8 +749,8 @@ class Worker(mp.Process):
 
 
     def run(self):
-        with self.save_lock:
-            self.global_episode += 1
+        # with self.save_lock:
+        #     self.global_episode += 1
         self.train_cycles += 1
         gradients, timesteps = self.train()
             # barrier.wait()  # Wait for all workers to finish this iteration

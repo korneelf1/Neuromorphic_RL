@@ -1,7 +1,7 @@
 # main file combining all components of the A3C algorithm
-from helper_functions import Feedforward as f
-from helper_functions import A3Cnet as a3c
-from helper_functions import Memory, Transition, ActorCritic, ActorCriticSNN
+from A3C.legacy_code.helper_functions import Feedforward as f
+from A3C.legacy_code.helper_functions import A3Cnet as a3c
+from A3C.legacy_code.helper_functions import Memory, Transition, ActorCritic, ActorCriticSNN
 
 import torch
 import torch.nn as nn
