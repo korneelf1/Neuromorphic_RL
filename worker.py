@@ -105,7 +105,7 @@ class MasterModel(mp.Process):
             state = torch.from_numpy(state).to(self.device)
             state, vel = state[0], state[1] # new
 # get network outputs on given state
-            _, policy = self.global_model(state.unsqueeze(0))
+            _, policy,_ = self.global_model(state.unsqueeze(0))
 
             # find probabilities of certain actions
             prob = F.softmax(policy, dim=-1)
@@ -343,7 +343,7 @@ class Worker(mp.Process):
     
         R = 0
         if not terminal:
-            R, _ = self.local_model(torch.from_numpy(state).to(self.device))
+            R, _,_ = self.local_model(torch.from_numpy(state).to(self.device))
             R = R.detach()
 
             
