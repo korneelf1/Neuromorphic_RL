@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import time
 from gym.utils import play
+from matplotlib import cm
 
 import gymnasium
 class GridWorldEnv(gym.Env):
@@ -389,7 +390,7 @@ class SimpleDrone(gym.Env):
         pass
 
 class SimpleDrone_Discrete(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.1, dt = 0.025, max_episode_length = 200):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200):
         self.mass = mass
         self.g = 9.81
         self.dt = dt
@@ -405,7 +406,8 @@ class SimpleDrone_Discrete(gym.Env):
         self.landing_velocity = -landing_velocity
 
         self.action_space = gym.spaces.Discrete(7)
-        self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
+        # self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
+        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.2]]), shape=(1,1))
 
         self.max_thrust = 5
         self.max_acc = 1
@@ -417,16 +419,10 @@ class SimpleDrone_Discrete(gym.Env):
         self.accelerations = []
         self.counter = 0
         self.render_mode = render_mode
-#  Create a figure and axis for the plot
-        self.fig, self.ax = plt.subplots()
-        self.line_trajectory, = self.ax.plot([], [], label='Trajectory')
-        self.line_velocities, = self.ax.plot([], [], label='Velocities')
-        self.line_thrust, = self.ax.plot([], [], label='Thrust')
 
         self.done = False
         self.prev_shaping = None
-        # Set up the legend
-        self.ax.legend(loc='upper right')
+        
         
 
     def _get_obs(self):
@@ -434,8 +430,42 @@ class SimpleDrone_Discrete(gym.Env):
         # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
         # obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1).squeeze()
         obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,)
+        # obs = np.array([self._agent_location]).reshape(1,)
         return obs
     
+
+
+
+    def reward_function_snn(self,z, vz,thrust, done, normalized=False):
+        touch_ground = False
+        if abs(z)<0.1:
+            touch_ground = True
+        
+        reward = 100
+        if z>-.1:
+            # reward += 100/(1+abs(z))
+            reward -= z*100
+        
+        if vz<0:
+            distance_from_target_factor = (2.5-z)/2.5
+            # reward += 50*np.exp(-abs(vz)*5)
+
+            reward += (vz*200)*distance_from_target_factor + (1-distance_from_target_factor)*200*-vz
+        else:
+            # reward -= 100*np.exp(abs(vz)*5e-1) # factor 100 so 0 reward if upward speed at height 0
+            reward -= (vz+1) *100
+
+        if z < -.1:
+            reward = 0 
+        
+        # landing
+        if touch_ground and 0 > (vz) > -self.landing_velocity:
+            reward += 100
+            print('Landed')
+            # print(reward)
+        return reward
+
+        
 
     def reward_function(self,z, vz,thrust, done, normalized=False):
         touch_ground = False
@@ -462,24 +492,51 @@ class SimpleDrone_Discrete(gym.Env):
         # reward += -state[1]*10
         terminated = False
         crash = False
-        if touch_ground and abs(vz) > 0.1:
+        if touch_ground and abs(vz) > self.landing_velocity:
             crash = True
 
-        if crash or abs(state[0]) >= 2.2:
+        if abs(state[0]) >= 2.2:
             terminated = True
             reward -= 400
             # reward -= abs((state[1])*25)
-        elif touch_ground and abs(vz) < 0.1:
+        # elif touch_ground and abs(vz) < self.landing_velocity:
+        elif touch_ground:
             terminated = True
-            reward += 1000
             # bonus for soft landing
-            reward += (1/(state[1]+1e-3)*25)
+            reward += abs((1/(state[1]+1e-3)*100))
+            # print(reward,(1/(state[1]+1e-3)*25))
         if self.counter>= self.max_episode_length-1:
             terminated = True
             reward -= 200
         return reward
     
+    def plot_reward_function(self):
+        # Define the range of z and vz values
+        z_values = np.linspace(0, 2.5, 100)
+        vz_values = np.linspace(-1, 1, 100)
 
+        # Create a grid of z and vz values
+        Z, VZ = np.meshgrid(z_values, vz_values)
+
+        # Calculate the reward for each combination of z and vz
+        reward = np.zeros_like(Z)
+        for i in range(len(z_values)):
+            for j in range(len(vz_values)):
+                reward[i, j] = self.reward_function_snn(Z[i, j], VZ[i, j], 0, False)
+
+        # Create a surface plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(Z, VZ, reward, cmap=cm.coolwarm)
+
+        # Set labels and title
+        ax.set_xlabel('z')
+        ax.set_ylabel('vz')
+        ax.set_zlabel('Reward')
+        ax.set_title('Reward Function (SNN)')
+
+        # Show the plot
+        plt.show()
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
         # self._agent_location = np.random.randint(5,20)*.1
@@ -498,9 +555,7 @@ class SimpleDrone_Discrete(gym.Env):
         self.counter = 0
         self.thrust_last = 0
         self.done = False
-        self.line_trajectory.set_data([], [])
-        self.line_velocities.set_data([], [])
-        self.line_thrust.set_data([], [])
+
         
         return self._get_obs(),{}
     
@@ -530,7 +585,8 @@ class SimpleDrone_Discrete(gym.Env):
         info = {}
 
         info['landed'] = False
-        self.reward = self.reward_function(self._agent_location, self._agent_velocity, action, terminal)
+        info['end_condition'] = 'none'
+        self.reward = self.reward_function_snn(self._agent_location, self._agent_velocity, action, terminal)
         if np.abs(self._agent_location) > 2.2:
             terminal = True
             truncated = True
@@ -542,7 +598,7 @@ class SimpleDrone_Discrete(gym.Env):
         elif self._agent_location<0.1:
             self.done = True
 
-            if np.abs(self._agent_velocity) < 0.1:
+            if np.abs(self._agent_velocity) < self.landing_velocity:
                 terminal = True
                 truncated = True
                 # self.reward +=100
@@ -581,7 +637,9 @@ class SimpleDrone_Discrete(gym.Env):
         return self._get_obs(), self.reward, terminal, truncated, info
         
 
-    def render(self, mode='human'):
+    def render(self, mode='post'):
+        # Set up the legend
+        self.ax.legend(loc='upper right')
         # self.add_data_point(self.counter, self._agent_location, self._agent_velocity, self.thrust_last)
         if mode == 'post':
             plt.figure()
@@ -590,19 +648,6 @@ class SimpleDrone_Discrete(gym.Env):
             plt.plot(self.times, self.thrust)
             plt.show()
                 
-
-        elif mode == 'human':
-            self.line_trajectory.set_data(self.times, self.trajectory)
-            self.line_velocities.set_data(self.times, self.velocities)
-            self.line_thrust.set_data(self.times, self.thrust)
-
-            # Adjust the plot's axis limits if needed
-            self.ax.relim()
-            self.ax.autoscale_view()
-
-            # Display the updated plot
-            plt.draw()
-            plt.pause(0.01)  # Add a small delay to update the plot
 
 
     def add_data_point(self, time, trajectory, velocities, thrust):

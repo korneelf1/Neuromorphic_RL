@@ -142,35 +142,35 @@ snn_model = ActorCriticSNN_LIF_Small(state_size, action_size,
                                     inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                     bias=False,nr_passes = 1)
 
-snn_model.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in128x2out_50e3_20hz_real.pt'))
+# snn_model.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in128x2out_50e3_20hz_real.pt'))
 
 snn_model_1 = ActorCriticSNN_LIF_Smallest(state_size, action_size,
                                     inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                     inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                     bias=False,nr_passes = 1)
 
-snn_model_1.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in246out_25e3_0gain_higherleaks.pt'))
+snn_model_1.load_state_dict(torch.load('/Users/korneel/coding/A3C/past_trainings/Figures/SNN_in246out_25e3_0gain_65leak.pt'))
 
 snn_model_pruned = ActorCriticSNN_LIF_Smallest_pruned(state_size, action_size, hidden_size=11,
                                     inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
                                     inp_max=  torch.tensor([4.8, 10,0.418,2]), 
                                     nr_passes = 1)
 
-snn_model_pruned.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in248out_25e3_0gain_noleak_pruned_full.pt'))
+# snn_model_pruned.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in248out_25e3_0gain_noleak_pruned_full.pt'))
 
-snn_model_2_pruned = ActorCriticSNN_LIF_Smallest_pruned(state_size, action_size, hidden_size=21,
-                                    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
-                                    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
-                                    nr_passes = 1)
+# snn_model_2_pruned = ActorCriticSNN_LIF_Smallest_pruned(state_size, action_size, hidden_size=21,
+#                                     inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
+#                                     inp_max=  torch.tensor([4.8, 10,0.418,2]), 
+#                                     nr_passes = 1)
 
-snn_model_2_pruned.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in248out_25e3_0gain_higher_leaks_pruned_full.pt'))
-print('SNN loaded')
+# snn_model_2_pruned.load_state_dict(torch.load('A3C/past_trainings/Figures/SNN_in248out_25e3_0gain_higher_leaks_pruned_full.pt'))
+# print('SNN loaded')
 
-ann_model = ActorCritic_ANN(state_size, action_size)
-ann_model.load_state_dict(torch.load('A3C/past_trainings/Figures/ANN_in128x2out_50e3_20hz.pt'))
+# ann_model = ActorCritic_ANN(state_size, action_size)
+# ann_model.load_state_dict(torch.load('A3C/past_trainings/Figures/ANN_in128x2out_50e3_20hz.pt'))
 
 snn_model.eval()
-ann_model.eval()
+# ann_model.eval()
 
 
 def evaluate_model(model, gain, spiking, nr_its = 250):
@@ -224,6 +224,7 @@ def evaluate_model(model, gain, spiking, nr_its = 250):
     # average_times.append(np.mean(times))
     return np.mean(times), all_spikes
 
+
 def add_noise(state, gain=0.1):
     noise = np.random.normal(0, gain, state.shape)
     return state + noise
@@ -268,6 +269,13 @@ def noise_analysis(ann_model, snn_model, snn_model_2, snn_model_pruned, snn_mode
     plt.legend()
     plt.show()
 
+evaluate_model(snn_model_1, 0, spiking=True, nr_its=1)
+snn_model_1.plot_spikes()
+# To save the animation using Pillow as a gif
+# writer = animation.PillowWriter(fps=15,
+#                                 metadata=dict(artist='Me'),
+#                                 bitrate=1800)
+# ani.save('scatter.gif', writer=writer)
 noise_analysis(ann_model, snn_model, snn_model_1, snn_model_pruned, snn_model_2_pruned)
 
 def pruning(snn_model, hidden_size=246):
