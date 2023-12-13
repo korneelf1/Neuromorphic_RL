@@ -308,10 +308,11 @@ class Worker(mp.Process):
             value, policy, vel = self.local_model(state.unsqueeze(0)) # new
             predicted_velocities.append(vel) # new
             # find probabilities of certain actions
+
             prob = F.softmax(policy, dim=-1)
 
             logprob = F.log_softmax(policy, dim=-1)
-
+            print(prob.shape, logprob.shape, (prob*logprob).shape)
             # calculate entropy
             entropy = -(logprob * prob).sum(1, keepdim=True)
             entropies.append(entropy)

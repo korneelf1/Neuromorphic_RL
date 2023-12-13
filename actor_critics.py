@@ -456,7 +456,6 @@ class ActorCriticSNN_LIF_drone(torch.nn.Module):
         self.lif2 = snn.Leaky(beta = beta_hidden, spike_grad=self.spike_grad, threshold=thr_hidden, learn_beta=True)
         # self.lif2 = snn.Synaptic(beta = .75, alpha = 0.5, spike_grad=self.spike_grad, learn_beta=False, learn_alpha=False)
 
-        num_outputs = action_space.n
         # randomly initialize decay rate for output neuron
         beta_out = torch.rand(1)
 
