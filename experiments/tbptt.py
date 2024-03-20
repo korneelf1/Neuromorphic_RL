@@ -145,6 +145,39 @@ class Net(torch.nn.Module):
 
         return torch.stack(probs)
 
+env = gym.make("CartPole-v1")
+
+def eval_agent(agent, iterations):
+    # evaluate with gym interaction
+    env.reset()
+
+    times = []
+    for i in range(int(iterations)):
+        agent.init_mem()
+        state, _ = env.reset()
+        done = False
+        j=0
+        while not done and j <1000:
+            
+
+            prob = agent.forward_single(torch.tensor(state).to(device).unsqueeze(0))
+                # find probabilities of certain actions
+            # prob = F.softmax(policy, dim=-1)
+
+
+
+                # choose the action and detach from computational graph
+            action = prob.multinomial(num_samples=1).detach() # find max of this and make sure it is not part of optimization
+            
+            state, reward, done, truncated, info = env.step(action.item())
+            j+=1
+
+        print(f"Episode {i} finished, number of steps taken: {j}")
+        times.append(j)
+
+    print(f"Average number of steps taken: {sum(times)/len(times)}")
+    return sum(times)/len(times)
+
 # from snnTorch
 class RegressionDataset(torch.utils.data.Dataset):
     """Simple regression dataset."""
@@ -229,11 +262,7 @@ class CartPoleDataset(torch.utils.data.Dataset):
 dataset = CartPoleDataset(datatensor)
 # plot
 sample = dataset.labels[:, 0, 0]
-plt.plot(sample)
-plt.title("Target function to teach network")
-plt.xlabel("Time")
-plt.ylabel("Membrane Potential")
-# plt.show()
+
 
 batch_size = 10 # only one sample to learn
 dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, drop_last=True)
@@ -249,14 +278,6 @@ with torch.no_grad():
         label = label.to(device)
         mem = model(feature)
 
-# plot
-plt.plot(mem[:, 0, 0].cpu(), label="Output")
-plt.plot(label[:, 0, 0].cpu(), '--', label="Target")
-plt.title("Untrained Output Neuron")
-plt.xlabel("Time")
-plt.ylabel("Membrane Potential")
-plt.legend(loc='best')
-# plt.show()
 
 num_iter = 1000 # train for 1000 iterations
 optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
@@ -269,7 +290,14 @@ sequence_length = 1
 print('Number of sequences:', n_sequences)
 # training loop
 printed = False
+counter = 0
+performance_lst = []
 with tqdm.trange(num_iter) as pbar:
+    counter+=1
+    if counter % 10 == 0:
+        performance_lst.append(eval_agent(model, 10))
+    else:
+        print(counter)
     for _ in pbar:
         train_batch = iter(dataloader)
         minibatch_counter = 0
@@ -301,9 +329,10 @@ with tqdm.trange(num_iter) as pbar:
 
             avg_batch_loss = sum(loss_epoch) / minibatch_counter # calculate average loss p/epoch
             pbar.set_postfix(loss="%.3e" % avg_batch_loss) # print loss p/batch
-
+    
 loss_function = torch.nn.L1Loss() # Use L1 loss instead
-
+print('Finished training')
+print(performance_lst)
  # pause gradient calculation during evaluation
 with torch.no_grad():
     model.eval()
@@ -356,39 +385,6 @@ print('Betas of the hidden layers')
 print(torch.mean(model.lif_in.beta))
 print(torch.mean(model.lif_hidden.beta))
 print(torch.mean(model.li_out.beta))
-
-
-# evaluate with gym interaction
-env = gym.make("CartPole-v1")
-env.reset()
-action_size = env.action_space
-state_size = env.observation_space.shape[0]
-iterations = 10
-times = []
-for i in range(int(iterations)):
-    model.init_mem()
-    state, _ = env.reset()
-    done = False
-    j=0
-    while not done and j <1000:
-        
-
-        prob = model.forward_single(torch.tensor(state).to(device).unsqueeze(0))
-            # find probabilities of certain actions
-        # prob = F.softmax(policy, dim=-1)
-
-
-
-            # choose the action and detach from computational graph
-        action = prob.multinomial(num_samples=1).detach() # find max of this and make sure it is not part of optimization
-        
-        state, reward, done, truncated, info = env.step(action.item())
-        j+=1
-
-    print(f"Episode {i} finished, number of steps taken: {j}")
-    times.append(j)
-
-print(f"Average number of steps taken: {sum(times)/len(times)}")
 
 
 
