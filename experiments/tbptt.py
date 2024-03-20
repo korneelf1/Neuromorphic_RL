@@ -172,10 +172,10 @@ def eval_agent(agent, iterations):
             state, reward, done, truncated, info = env.step(action.item())
             j+=1
 
-        print(f"Episode {i} finished, number of steps taken: {j}")
+        # print(f"Episode {i} finished, number of steps taken: {j}")
         times.append(j)
 
-    print(f"Average number of steps taken: {sum(times)/len(times)}")
+    # print(f"Average number of steps taken: {sum(times)/len(times)}")
     return sum(times)/len(times)
 
 # from snnTorch
@@ -280,6 +280,7 @@ with torch.no_grad():
 
 
 num_iter = 1000 # train for 1000 iterations
+eval_interval = 50 # evaluate every 100 iterations
 optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
 loss_function = torch.nn.MSELoss()
 
@@ -293,12 +294,12 @@ printed = False
 counter = 0
 performance_lst = []
 with tqdm.trange(num_iter) as pbar:
-    counter+=1
-    if counter % 10 == 0:
-        performance_lst.append(eval_agent(model, 10))
-    else:
-        print(counter)
+    
     for _ in pbar:
+        counter+=1
+        if counter % eval_interval == 0:
+            performance_lst.append(eval_agent(model, 10))
+
         train_batch = iter(dataloader)
         minibatch_counter = 0
         loss_epoch = []
@@ -386,6 +387,11 @@ print(torch.mean(model.lif_in.beta))
 print(torch.mean(model.lif_hidden.beta))
 print(torch.mean(model.li_out.beta))
 
-
+# plot performance_lst
+plt.plot(performance_lst)
+plt.title("Performance")
+plt.xlabel("Evaluation")
+plt.ylabel("Average steps")
+plt.show()
 
 
