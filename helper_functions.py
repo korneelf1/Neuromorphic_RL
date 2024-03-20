@@ -171,10 +171,14 @@ class ActorCriticSNN(torch.nn.Module):
 
         return out_fion
         
-    def forward(self, inputs, device, print_spikes = False):
+    def forward(self, inputs, device, print_spikes = False, normalize_in = True):
         # soft population encoding
         # cur_in = self.soft_population(inputs, device = device)
-        # print(cur_in.size())
+
+        # normalize inputs
+        inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
+
+        inputs = inputs.to(torch.float32)
         # # use first layer to build up potential and spike and learn weights to present informatino in meaningful way
         cur_in = torch.sigmoid(self.cont_to_spike_layer(inputs)) # avoid negative incoming currents
         # print(cur_in.size())
@@ -518,7 +522,7 @@ class ActorCritic(torch.nn.Module):
 
         self.train()
 
-    def forward(self, inputs):
+    def forward(self, inputs, device=None):
         # inputs, (hx, cx) = inputs
         x = F.elu(self.conv1(inputs))
         x = F.elu(self.conv2(x))

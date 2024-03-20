@@ -5,6 +5,10 @@ from helper_functions import Memory, Transition, ActorCritic, ActorCriticSNN, pl
 
 # environment wrapper with tunable states:
 from CartPole_modified import MountainCart_fake
+import minigrid
+import gymnasium
+from environments import SimpleGrid
+
 
 import torch
 import torch.nn as nn
@@ -20,34 +24,42 @@ import numpy as np
 # training environment
 import gym
 
-env = gym.make('MountainCar-v0')
-env = MountainCart_fake()
-constant_state, info = env.reset()
-
+# env = gym.make('Acrobot-v1')
+# env = MountainCart_fake()
+# constant_state, info = env.reset()
+# env = gymnasium.make("MiniGrid-Empty-5x5-v0")
 # env = gym.make('CartPole-v1', render_mode="human")
 # env = gym.make("CartPole-v1")
-
+env = SimpleGrid()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = 'cpu'
 show_result = True
 # global parameters
 T = 0
 th = 0
 th_v = 0
 GAMMA = .9
+BETA = .9
 LAMBDA_G = .9
 ENTROPY_COEF = .01
 VALUE_LOSS_COEF = 1.4
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = None
-MAX_GRAD_NORM = 1.5
+MAX_GRAD_NORM = 1
+# loss functions implemented: 
+# 'GA': generalized advantage 
+# 'AWR': Advantage Weighted Regression (https://arxiv.org/pdf/1910.00177.pdf)
+LOSS_FUNCTION = 'AWR'
 
-T_max = 25000 
+
+T_max = 10000 
 # T_max = 3
 t_sim_max = 200
 # t_sim_max = 1
 T_SNN_VAL_WINDOW = 5
 
-
+# for debugging
+torch.autograd.set_detect_anomaly(True)
 
 # # multithreading purposes
 # nr_threads = threading.active_count()
@@ -59,7 +71,7 @@ T_SNN_VAL_WINDOW = 5
 # critic1 = f(2,1,3,120)
 
 
-model = ActorCriticSNN(2, env.action_space, T_SNN_VAL_WINDOW).to(device)
+model = ActorCriticSNN(4, env.action_space, T_SNN_VAL_WINDOW).to(device)
 
 # model = ActorCritic(4, env.action_space).to(device)
 
@@ -84,8 +96,8 @@ while T<T_max:
     model.load_state_dict(model_params)
 
     # get initial state
-    # state, info = env.reset()
-    state = env.set_state(constant_state)
+    state, info = env.reset()
+    # state = env.set_state(constant_state)
 
     # set up replay memory
     memory = deque([])
@@ -106,12 +118,14 @@ while T<T_max:
 
         # state to tensor
         state = torch.from_numpy(state).to(device)
-
+        # print(state)
+        print(state)
         # get network outputs on given state
         value, policy = model(state.unsqueeze(0), device=device)
 
         # find probabilities of certain actions
         prob = F.softmax(policy, dim=-1)
+        print(prob)
 
         logprob = F.log_softmax(policy, dim=-1)
 
@@ -163,43 +177,53 @@ while T<T_max:
     value_loss  = 0
     g = torch.zeros(1,1).to(device)
     len_counter = 0
-    # note cycle through memory sequentially as we are appending left
-    for i in reversed(range(len(rewards))):
-        len_counter+=1
+    # R = 0
+    if LOSS_FUNCTION == 'GA':
+        # note cycle through memory sequentially as we are appending left
+        for i in reversed(range(len(rewards))):
+            len_counter+=1
 
-        if len_counter>5:
+            if len_counter>-1:
 
-            R = rewards[i] + GAMMA*R
+                R = rewards[i] + GAMMA*R
 
-        # accumulate gradients wrt thread specific theta
-            advantage = R - values[i] # note that according to the git they are out of sync by one step 
+            # accumulate gradients wrt thread specific theta
+                advantage = R - values[i] # note that according to the git they are out of sync by one step 
 
-    #     # this if from the paper: 
-    #     # question: doesn't this iterative adding make steps too big? all the gradients are applied but they were all calculated to the same initial net? 
-    #     # every step now changes the weights but this gradient is wrt the initial weights
+        #     # this if from the paper: 
+        #     # question: doesn't this iterative adding make steps too big? all the gradients are applied but they were all calculated to the same initial net? 
+        #     # every step now changes the weights but this gradient is wrt the initial weights
 
 
 
-            # alternative training loop
-            value_loss = value_loss + 0.5*advantage.pow(2)
+                # alternative training loop
+                value_loss = value_loss + 0.5*advantage.pow(2)
 
-            # generalized advantage estimation from: https://arxiv.org/pdf/1506.02438.pdf
-            delta_t = rewards[i] + GAMMA* values[i+1] - values[i]
-            g = g*GAMMA*LAMBDA_G + delta_t
+                # generalized advantage estimation from: https://arxiv.org/pdf/1506.02438.pdf
+                delta_t = rewards[i] + GAMMA* values[i+1] - values[i]
+                g = g*GAMMA*LAMBDA_G + delta_t
 
-            policy_loss = policy_loss - log_probs[i]*g.detach() - entropies[i]*ENTROPY_COEF
+                policy_loss = policy_loss - log_probs[i]*g.detach() - entropies[i]*ENTROPY_COEF
 
-           
-        else:
-            value_loss = 0
-            policy_loss = 0
+            
+            else:
+                value_loss = 0
+                policy_loss = 0
 
-    # if (T%25000 == 0)   or T==3:
-    #     print('Policy loss: ', policy_loss)
-    #     print('Value loss: ', value_loss)
-    #     plot_activity(torch.stack(model.spk1_rec),torch.stack(model.spk2_rec),torch.stack(model.spk3_rec))
-    #     plot_potentials(torch.stack(model.spk1_rec),torch.stack(model.mem1_rec),torch.stack(model.syn1_rec),torch.stack(model.spk2_rec),torch.stack(model.mem2_rec),torch.stack(model.syn2_rec))
- 
+        # if (T%25000 == 0)   or T==3:
+        #     print('Policy loss: ', policy_loss)
+        #     print('Value loss: ', value_loss)
+        #     plot_activity(torch.stack(model.spk1_rec),torch.stack(model.spk2_rec),torch.stack(model.spk3_rec))
+        #     plot_potentials(torch.stack(model.spk1_rec),torch.stack(model.mem1_rec),torch.stack(model.syn1_rec),torch.stack(model.spk2_rec),torch.stack(model.mem2_rec),torch.stack(model.syn2_rec))
+    
+    elif LOSS_FUNCTION == 'AWR':
+        for i in range(len(values)-1):
+            R += GAMMA**i*(rewards[i])/(i+1) # normalize by how manys teps
+            advantage = R - values[i]
+            print(R)
+            if i > T_SNN_VAL_WINDOW:
+                value_loss += 1/2*advantage**2
+                policy_loss += log_probs[i]*torch.exp(1/BETA*advantage)
     optimizer.zero_grad()
 
     l2_norm = sum(p.pow(2.0).sum()
@@ -208,17 +232,19 @@ while T<T_max:
     spike_sparsity_loss = torch.sum(torch.stack(model.spk_in_rec)) + torch.sum(torch.stack(model.spk1_rec)) + torch.sum(torch.stack(model.spk2_rec)) + torch.sum(torch.stack(model.spk3_rec))
     # print('spike_sparsity loss: ' + str(spike_sparsity_loss*.00005 + 1/spike_sparsity_loss*100))
     # print('other loss: '+ str((policy_loss + value_loss * VALUE_LOSS_COEF )))
-    loss = (policy_loss + value_loss * VALUE_LOSS_COEF ) + spike_sparsity_loss*.00005 + 1/(spike_sparsity_loss+1e-6)*100
-    # loss = loss
+    loss = (policy_loss + value_loss * VALUE_LOSS_COEF ) + spike_sparsity_loss*.00005 + 1/(spike_sparsity_loss+1e-3)*100
+    # loss = value_loss
+    print(loss)
     loss_lst.append(loss.to('cpu').detach().squeeze(0))
     
     loss = loss/len_counter # normalize?
-
+    # torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
     loss.backward()
-    # print('Backward pass completed!')
+
     torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
 
     optimizer.step()
+    print('Backward pass completed!')
 
 print('Policy loss: ', policy_loss)
 print('Value loss: ', value_loss)

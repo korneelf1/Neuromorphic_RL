@@ -47,12 +47,18 @@ for iteration in range(ITERATIONS):
         
       
         model_val, model_act = model(in_data[0][i].to(device).unsqueeze(0), device=device)
-        print(model_val, model_act)
+        # print(model_val, model_act)
         loss_vals = lossfn(model_val, labels[0][0][i].to(device))
         loss_act  = lossfn(model_act, labels[1][0][i].to(device))
         # loss_act = 0
         
+
+
         loss += loss_vals + loss_act
+
+    spike_sparsity_loss = torch.sum(torch.stack(model.spk_in_rec)) + torch.sum(torch.stack(model.spk1_rec)) + torch.sum(torch.stack(model.spk2_rec)) + torch.sum(torch.stack(model.spk3_rec))
+    loss += spike_sparsity_loss*.00005 + 1/(spike_sparsity_loss+1e-3)*100
+    
     losses.append(loss.detach().to('cpu').squeeze(0))
     print('Loss:', loss.item())
 
