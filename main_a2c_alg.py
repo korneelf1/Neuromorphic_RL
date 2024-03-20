@@ -32,7 +32,7 @@ def main():
         global_model = MasterModel_continuous(**args)
     else:
         global_model = MasterModel(**args)
-        # global_model.global_model.load_state_dict(torch.load('drone_snn_pos.pt'))
+        global_model.global_model.load_state_dict(torch.load('drone_snn_pos_45_success.pt'))
           
 
     global_model.start()
@@ -41,7 +41,7 @@ def main():
     global_model.run()
     print('global model finished')
     global_model.join()
-    global_model.save_model(path='drone_snn_vel.pt')
+    global_model.save_model(path='drone_snn_pos.pt')
 
     # plt.plot(list(range(len(global_model.episode_times))), global_model.episode_times)
     # plt.savefig('drone_snn_pos.png') # save the figure with name SNN_246_200Hz_100e3

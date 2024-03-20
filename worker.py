@@ -68,7 +68,7 @@ class MasterModel(mp.Process):
         self.global_episode = 0  # Initialize the global episode counter
 
         if self.spiking:
-            self.global_model = ActorCriticSNN_LIF_drone(self.state_size, self.action_size).to(self.device)  # global network
+            self.global_model = ActorCriticSNN_LIF_drone(self.state_size, self.action_size, hidden1=32, hidden2=32).to(self.device)  # global network
 
             # self.global_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
             #                                     #    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
@@ -103,7 +103,7 @@ class MasterModel(mp.Process):
 
             # state to tensor
             state = torch.from_numpy(state).to(self.device)
-            state, vel = state[0], state[1] # new
+            # state, vel = state[0], state[1] # new
 # get network outputs on given state
             _, policy,_ = self.global_model(state.unsqueeze(0))
 
@@ -206,6 +206,7 @@ class MasterModel(mp.Process):
             for i,param in enumerate(self.global_model.parameters()):
                 param.grad = results[i] 
             self.opt.step()
+            self.global_model.clip_hiddens() # assure everything beteen 0 and 1
 
             for worker in self.workers:
                 worker.join()
@@ -253,7 +254,7 @@ class Worker(mp.Process):
         # for loss aggregation
         self.nr_workers = nr_workers
         if self.spiking:
-            self.local_model = ActorCriticSNN_LIF_drone(self.state_size, self.action_size).to(self.device)  # global network
+            self.local_model = ActorCriticSNN_LIF_drone(self.state_size, self.action_size, hidden1=32, hidden2=32).to(self.device)  # global network
             # self.local_model = ActorCriticSNN_LIF_Smallest(self.state_size, self.action_size,
             #                                     #    inp_min = torch.tensor([-4.8, -10,-0.418,-2]), 
             #                                     #    inp_max=  torch.tensor([4.8, 10,0.418,2]), 
@@ -303,16 +304,16 @@ class Worker(mp.Process):
             state = add_noise(state, gain=self.noise_gain)
             # state to tensor
             state = torch.from_numpy(state).to(self.device)
-            state, velocity = state[0], state[1] # new
+            # state, velocity = state[0], state[1] # new
             # get network outputs on given state
             value, policy, vel = self.local_model(state.unsqueeze(0)) # new
-            predicted_velocities.append(vel) # new
+            # predicted_velocities.append(vel) # new
             # find probabilities of certain actions
 
             prob = F.softmax(policy, dim=-1)
 
             logprob = F.log_softmax(policy, dim=-1)
-            print(prob.shape, logprob.shape, (prob*logprob).shape)
+
             # calculate entropy
             entropy = -(logprob * prob).sum(1, keepdim=True)
             entropies.append(entropy)
@@ -327,12 +328,12 @@ class Worker(mp.Process):
             obs, reward, terminal, _, _ = env.step(int(action.squeeze(0)))
 
             # !!!!!!!!!!!
-            reward = max(min(reward, 1), -1)
+            # reward = max(min(reward, 1), -1)
 
             values.append(value)
             log_probs.append(log_prob)
             rewards.append(reward)
-            velocities.append(velocity) # new
+            # velocities.append(velocity) # new
 
             
             if not terminal:
@@ -396,7 +397,9 @@ class Worker(mp.Process):
         
     def calculate_vel_loss(self, velocities, predicted_velocities):
         loss_function = torch.nn.MSELoss()
-        loss_val = loss_function(predicted_velocities, velocities) # calculate loss
+        predicted_velocities = predicted_velocities.reshape(-1)
+
+        loss_val = loss_function(predicted_velocities.float(), velocities.float()) # calculate loss
         
         return loss_val
     
@@ -422,12 +425,9 @@ class Worker(mp.Process):
     def train_velocity(self):
         memory = self.interact()
 
-        values = memory['values']
-        rewards = memory['rewards']
-        log_probs = memory['log_probs']
-        entropies = memory['entropies']
-        last_val  = memory['prev_val']
-        loss = self.calculate_vel_loss(memory['velocities'], memory['predicted_velocities'])
+        velocities = torch.stack(memory['velocities'])
+        predicted_velocities = torch.stack(memory['predicted_velocities'])
+        loss = self.calculate_vel_loss(velocities,predicted_velocities)
         self.opt.zero_grad()
         loss.backward()
         
@@ -440,8 +440,10 @@ class Worker(mp.Process):
     def run(self):
         self.train_cycles += 1
         # gradients, timesteps = self.train()
-        gradients, timesteps = self.train_velocity()
-        gradients_weighted = [grad * timesteps for grad in gradients]
+        gradients, timesteps = self.train()
+
+        gradients_weighted = [grad * timesteps if grad is not None else None for grad in gradients]
+        # gradients_weighted = [grad * timesteps for grad in gradients]
         # with Worker.save_lock:
-        return gradients_weighted,timesteps
+        return gradients_weighted, timesteps
 

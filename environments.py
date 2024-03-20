@@ -390,7 +390,7 @@ class SimpleDrone(gym.Env):
         pass
 
 class SimpleDrone_Discrete(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False):
         self.mass = mass
         self.g = 9.81
         self.dt = dt
@@ -408,6 +408,7 @@ class SimpleDrone_Discrete(gym.Env):
         self.action_space = gym.spaces.Discrete(7)
         # self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
         self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.2]]), shape=(1,1))
+        self.train_vel = train_vel
 
         self.max_thrust = 5
         self.max_acc = 1
@@ -429,9 +430,13 @@ class SimpleDrone_Discrete(gym.Env):
         # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
         # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
         # obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1).squeeze()
-        obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,)
+        obs = torch.tensor([self._agent_location]).reshape(1,)
+        vel = torch.tensor([self._agent_velocity], dtype=torch.float32).reshape(1,)
         # obs = np.array([self._agent_location]).reshape(1,)
-        return obs
+        if self.train_vel:
+            return obs, vel
+        else:
+            return np.array([self._agent_location]).reshape(1,)
     
 
 
@@ -539,11 +544,11 @@ class SimpleDrone_Discrete(gym.Env):
         plt.show()
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
-        # self._agent_location = np.random.randint(5,20)*.1
-        self._agent_location = 2
+        self._agent_location = np.random.randint(5,20)*.1
+        # self._agent_location = 2
         # self._agent_velocity = np.random.randint(-5,5)*.1
-        # self._agent_velocity = np.random.randint(-3,3)*.1
-        self._agent_velocity = 0
+        self._agent_velocity = np.random.randint(-3,3)*.1
+        # self._agent_velocity = 0
         self.reward = 0
 
         self.mass = 0.5 + (np.random.rand()-0.5)*0.01
@@ -575,6 +580,7 @@ class SimpleDrone_Discrete(gym.Env):
         self.thrust_last = action
 
         acceleration = self.action_to_acc(action) # learn wrt hover or wrt zero acc
+        print(acceleration)
         self.accelerations.append(acceleration)
         acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-10:-1])  if len(self.accelerations)>10 else acceleration
 
