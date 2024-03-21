@@ -279,7 +279,7 @@ with torch.no_grad():
         mem = model(feature)
 
 
-num_iter = 1000 # train for 1000 iterations
+num_iter = 500 # train for 500 iterations
 eval_interval = 50 # evaluate every 100 iterations
 optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
 loss_function = torch.nn.MSELoss()
@@ -287,7 +287,7 @@ loss_function = torch.nn.MSELoss()
 loss_hist = [] # record loss
 
 n_sequences = 1
-sequence_length = 1
+sequence_length = 500
 print('Number of sequences:', n_sequences)
 # training loop
 printed = False
@@ -298,7 +298,7 @@ with tqdm.trange(num_iter) as pbar:
     for _ in pbar:
         counter+=1
         if counter % eval_interval == 0:
-            performance_lst.append(eval_agent(model, 10))
+            performance_lst.append(eval_agent(model, 3))
 
         train_batch = iter(dataloader)
         minibatch_counter = 0
@@ -374,13 +374,7 @@ with torch.no_grad():
 print(f"{'Mean L1-loss:':<{20}}{mean_L1:1.2e}")
 print(f"{'Mean rel. err.:':<{20}}{mean_rel:1.2e}")
 
-plt.plot(mem[:, 0, 0].cpu(), label="Output")
-plt.plot(label[:, 0, 0].cpu(), '--', label="Target")
-plt.title("Trained Output Neuron")
-plt.xlabel("Time")
-plt.ylabel("Membrane Potential")
-plt.legend(loc='best')
-# plt.show()
+
 # print the betas of the hidden layers
 print('Betas of the hidden layers')
 print(torch.mean(model.lif_in.beta))
@@ -388,6 +382,7 @@ print(torch.mean(model.lif_hidden.beta))
 print(torch.mean(model.li_out.beta))
 
 # plot performance_lst
+plt.figure()
 plt.plot(performance_lst)
 plt.title("Performance")
 plt.xlabel("Evaluation")
