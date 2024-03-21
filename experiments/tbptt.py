@@ -242,9 +242,13 @@ datatensor = torch.load('experiments/dataset.pt')
 # labels = dataset[:, :, 1]
 
 class CartPoleDataset(torch.utils.data.Dataset):
-    def __init__(self, datatensor):
+    def __init__(self, datatensor, derivatives=False):
         self.datatensor = datatensor
         self.features = datatensor[:, :500, :4].swapaxes(0, 1)
+        if not derivatives:
+            self.features[:,:,1] = 0
+            self.features[:,:,3] = 0
+            # print(self.features.shape)
         labels = datatensor[:, :500, 4:].swapaxes(0, 1)
         placeholder = torch.zeros((labels.shape[0], labels.shape[1], 2))
         for i in range(labels.shape[0]):
@@ -279,15 +283,15 @@ with torch.no_grad():
         mem = model(feature)
 
 
-num_iter = 500 # train for 500 iterations
-eval_interval = 50 # evaluate every 100 iterations
+num_iter = 1000 # train for 500 iterations
+eval_interval = 250 # evaluate every 100 iterations
 optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
 loss_function = torch.nn.MSELoss()
 
 loss_hist = [] # record loss
 
 n_sequences = 1
-sequence_length = 500
+sequence_length = 50
 print('Number of sequences:', n_sequences)
 # training loop
 printed = False
