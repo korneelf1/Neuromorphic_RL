@@ -84,7 +84,7 @@ plt.ion()
 
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
+device = 'cpu'
 
 ######################################################################
 # Replay Memory
@@ -128,15 +128,20 @@ class ReplayMemory(object):
 
 class ReplayMemory_Full_Seq(object):
 
-    def __init__(self, capacity, interaction_max_length=200):
+    def __init__(self, capacity, interaction_max_length=200, padding='end'):
+        '''
+        Padding can be end or start. 
+        End padding will padd the end of the sequence with zeros
+        Start padding will pad the start of the sequence with zeros'''
         self.memory = deque([], maxlen=capacity)
         self.max_length = interaction_max_length
+        self.padding = padding
 
     def push(self, state, action, next_state, reward):
         """Save a transition"""
-        states = torch.zeros((self.max_length, 1))
+        states = torch.zeros((self.max_length, 4))
         actions = torch.zeros((self.max_length, 1))
-        next_states = torch.zeros((self.max_length, 1))
+        next_states = torch.zeros((self.max_length, 4))
         rewards = torch.zeros((self.max_length, 1))
 
         if state.shape[0] > self.max_length \
@@ -145,10 +150,18 @@ class ReplayMemory_Full_Seq(object):
             or reward.shape[0] > self.max_length:
             raise ValueError('Interaction length exceeds maximum length')
         else:
-            states[self.max_length - state.shape[0]:] = state
-            action[self.max_length - state.shape[0]:] = action
-            next_states[self.max_length - state.shape[0]:] = next_state
-            rewards[self.max_length - state.shape[0]:] = reward
+            if self.padding == 'end':
+                states[:state.shape[0]] = state
+                actions[:state.shape[0]] = action
+                next_states[:state.shape[0]] = next_state
+                rewards[:state.shape[0]] = reward
+            elif self.padding == 'start':
+                states[self.max_length - state.shape[0]:] = state
+                action[self.max_length - state.shape[0]:] = action
+                next_states[self.max_length - state.shape[0]:] = next_state
+                rewards[self.max_length - state.shape[0]:] = reward
+            else:
+                raise ValueError('Padding must be either start or end')
 
         self.memory.append(Transition(states, actions, next_states, rewards))
 
@@ -158,80 +171,6 @@ class ReplayMemory_Full_Seq(object):
     def __len__(self):
         return len(self.memory)
 
-######################################################################
-# Now, let's define our model. But first, let's quickly recap what a DQN is.
-#
-# DQN algorithm
-# -------------
-#
-# Our environment is deterministic, so all equations presented here are
-# also formulated deterministically for the sake of simplicity. In the
-# reinforcement learning literature, they would also contain expectations
-# over stochastic transitions in the environment.
-#
-# Our aim will be to train a policy that tries to maximize the discounted,
-# cumulative reward
-# :math:`R_{t_0} = \sum_{t=t_0}^{\infty} \gamma^{t - t_0} r_t`, where
-# :math:`R_{t_0}` is also known as the *return*. The discount,
-# :math:`\gamma`, should be a constant between :math:`0` and :math:`1`
-# that ensures the sum converges. A lower :math:`\gamma` makes 
-# rewards from the uncertain far future less important for our agent 
-# than the ones in the near future that it can be fairly confident 
-# about. It also encourages agents to collect reward closer in time 
-# than equivalent rewards that are temporally far away in the future.
-#
-# The main idea behind Q-learning is that if we had a function
-# :math:`Q^*: State \times Action \rightarrow \mathbb{R}`, that could tell
-# us what our return would be, if we were to take an action in a given
-# state, then we could easily construct a policy that maximizes our
-# rewards:
-#
-# .. math:: \pi^*(s) = \arg\!\max_a \ Q^*(s, a)
-#
-# However, we don't know everything about the world, so we don't have
-# access to :math:`Q^*`. But, since neural networks are universal function
-# approximators, we can simply create one and train it to resemble
-# :math:`Q^*`.
-#
-# For our training update rule, we'll use a fact that every :math:`Q`
-# function for some policy obeys the Bellman equation:
-#
-# .. math:: Q^{\pi}(s, a) = r + \gamma Q^{\pi}(s', \pi(s'))
-#
-# The difference between the two sides of the equality is known as the
-# temporal difference error, :math:`\delta`:
-#
-# .. math:: \delta = Q(s, a) - (r + \gamma \max_a' Q(s', a))
-#
-# To minimize this error, we will use the `Huber
-# loss <https://en.wikipedia.org/wiki/Huber_loss>`__. The Huber loss acts
-# like the mean squared error when the error is small, but like the mean
-# absolute error when the error is large - this makes it more robust to
-# outliers when the estimates of :math:`Q` are very noisy. We calculate
-# this over a batch of transitions, :math:`B`, sampled from the replay
-# memory:
-#
-# .. math::
-#
-#    \mathcal{L} = \frac{1}{|B|}\sum_{(s, a, s', r) \ \in \ B} \mathcal{L}(\delta)
-#
-# .. math::
-#
-#    \text{where} \quad \mathcal{L}(\delta) = \begin{cases}
-#      \frac{1}{2}{\delta^2}  & \text{for } |\delta| \le 1, \\
-#      |\delta| - \frac{1}{2} & \text{otherwise.}
-#    \end{cases}
-#
-# Q-network
-# ^^^^^^^^^
-#
-# Our model will be a feed forward  neural network that takes in the
-# difference between the current and previous screen patches. It has two
-# outputs, representing :math:`Q(s, \mathrm{left})` and
-# :math:`Q(s, \mathrm{right})` (where :math:`s` is the input to the
-# network). In effect, the network is trying to predict the *expected return* of
-# taking each action given the current input.
-#
 
 class DQN(nn.Module):
 
@@ -297,7 +236,7 @@ target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory_Full_Seq(1000)
+memory = ReplayMemory_Full_Seq(1000, padding='end')
 
 
 steps_done = 0
@@ -387,7 +326,7 @@ def optimize_model():
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    state_action_values = policy_net(state_batch).gather(1, action_batch.to(torch.int64))
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -437,6 +376,10 @@ for i_episode in range(num_episodes):
     # Initialize the environment and get its state
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    actions = []
+    rewards = []
+    next_states = []
+    states = [] 
     for t in count():
         action = select_action(state)
         observation, reward, terminated, truncated, _ = env.step(action.item())
@@ -448,8 +391,13 @@ for i_episode in range(num_episodes):
         else:
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
-        # Store the transition in memory
-        memory.push(state, action, next_state, reward)
+        # Store the transition in memory]
+        states.append(state)
+        actions.append(action)
+        rewards.append(reward)
+        next_states.append(next_state)
+
+        
 
         # Move to the next state
         state = next_state
@@ -467,8 +415,11 @@ for i_episode in range(num_episodes):
 
         if done:
             episode_durations.append(t + 1)
+            print(states)
+            memory.push(torch.stack(states), torch.stack(actions), torch.stack(next_states), torch.stack(rewards))
             plot_durations()
             break
+    
 
 print('Complete')
 plot_durations(show_result=True)
