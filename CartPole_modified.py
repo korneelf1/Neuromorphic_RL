@@ -72,16 +72,16 @@ class MountainCart_fake:
         self.env.close()
 
 if __name__ == "__main__":
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1", max_episode_steps=1000)
     # print(env_og.tau)
     # env = CartPole_fake(dt=0.02)
     env.reset()
     action_size = env.action_space
     state_size = env.observation_space.shape[0]
     model = sb3.A2C("MlpPolicy", env, verbose=1)
-    # model.learn(total_timesteps=1000000)
-    # model.save("a2c_cartpole")
-    model = sb3.A2C.load("a2c_cartpole")
+    model.learn(total_timesteps=1000000)
+    model.save("a2c_cartpole_1000steps")
+    model = sb3.A2C.load("a2c_cartpole_1000steps")
 
     # Evaluate the agent and save states and actions
     num_episodes = 25
@@ -106,5 +106,5 @@ if __name__ == "__main__":
         dataset[i] = torch.stack(dataset[i][:min_length])
     dataset = torch.stack(dataset)
     print(dataset.shape)
-    torch.save(dataset, "/Users/korneel/coding/A3C/experiments/dataset.pt")
+    torch.save(dataset, "/Users/korneel/coding/A3C/experiments/dataset_1000steps.pt")
     # Save the dataset
