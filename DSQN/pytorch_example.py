@@ -14,6 +14,32 @@ import torch.nn.functional as F
 import numpy as np
 import snntorch
 from snntorch import surrogate
+import wandb
+
+# BATCH_SIZE is the number of transitions sampled from the replay buffer
+# GAMMA is the discount factor as mentioned in the previous section
+# EPS_START is the starting value of epsilon
+# EPS_END is the final value of epsilon
+# EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+# TAU is the update rate of the target network
+# LR is the learning rate of the ``AdamW`` optimizer
+BATCH_SIZE = 256
+GAMMA = 0.99
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 1000
+TAU = 0.005
+LR = 1e-4
+INTERACTION_MAX_LENGTH = 500
+TBPTT_LENGTH = 50
+PADDING_MODE = 'end'
+GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
+SPIKING = True
+PLOTTING = 'wandb' # local or wandb
+
+if PLOTTING=='wandb':
+    # set up wandb
+    wandb.init(project='cartpole', config={'algorithm': 'DSQN', 'learning_rate': 0.01, 'architecture': 'SNN'})
 
 env = gym.make("CartPole-v1")
 # env = CartPole_fake()
@@ -234,25 +260,7 @@ class DSQN(nn.Module):
 #    episode.
 #
 
-# BATCH_SIZE is the number of transitions sampled from the replay buffer
-# GAMMA is the discount factor as mentioned in the previous section
-# EPS_START is the starting value of epsilon
-# EPS_END is the final value of epsilon
-# EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
-# TAU is the update rate of the target network
-# LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 256
-GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 1000
-TAU = 0.005
-LR = 1e-4
-INTERACTION_MAX_LENGTH = 500
-TBPTT_LENGTH = 50
-PADDING_MODE = 'end'
-GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
-SPIKING = True
+
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -269,7 +277,8 @@ else:
     target_net = DQN(n_observations, n_actions).to(device)
 
 target_net.load_state_dict(policy_net.state_dict())
-
+if PLOTTING=='wandb':
+    wandb.watch(policy_net)
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory_Full_Seq(10000, padding=PADDING_MODE, interaction_max_length=INTERACTION_MAX_LENGTH, tbptt_length=TBPTT_LENGTH)
 
@@ -487,7 +496,10 @@ def collect_rollout(env, memory, device='cpu', spiking=False):
             episode_durations.append(t + 1)
             # print(states)
             memory.push(torch.cat(states), torch.cat(actions), torch.cat(next_states), torch.cat(rewards))
-            plot_durations()
+            if PLOTTING=='local':
+                plot_durations()
+            elif PLOTTING=='wandb':
+                wandb.log({'episode_duration': t+1})
             break
 
 
@@ -514,7 +526,8 @@ for i_episode in range(num_episodes):
 
 print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
 print('Complete')
-plot_durations(show_result=True)
+if PLOTTING=='local':
+    plot_durations(show_result=True)
 plt.ioff()
 plt.show()
 
