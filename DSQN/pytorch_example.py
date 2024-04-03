@@ -23,7 +23,7 @@ import wandb
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
@@ -35,7 +35,7 @@ TBPTT_LENGTH = 50
 PADDING_MODE = 'end'
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
 SPIKING = True
-PLOTTING = 'wandb' # local or wandb
+PLOTTING = 'wandb' # local or wandb or none
 
 if PLOTTING=='wandb':
     # set up wandb
@@ -43,18 +43,18 @@ if PLOTTING=='wandb':
 
 env = gym.make("CartPole-v1")
 # env = CartPole_fake()
+if PLOTTING=='local':
+    # set up matplotlib
+    is_ipython = 'inline' in matplotlib.get_backend()
+    if is_ipython:
+        from IPython import display
 
-# set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
-if is_ipython:
-    from IPython import display
-
-plt.ion()
+    plt.ion()
 
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = 'cpu'
 
+print(device)
 # set random seeds for reproducibility
 seed = 42
 random.seed(seed)
@@ -364,14 +364,14 @@ def optimize_model():
     # to Transition of batch-arrays.
     batch = Transition(*zip(*transitions))
 
-    state_batch = torch.stack(batch.state) # (batch_size, n_observations, observation_length)
-    action_batch = torch.stack(batch.action)
-    reward_batch = torch.stack(batch.reward)
-    next_state_batch = torch.stack(batch.next_state)
+    state_batch = torch.stack(batch.state).to(device) # (batch_size, n_observations, observation_length)
+    action_batch = torch.stack(batch.action).to(device)
+    reward_batch = torch.stack(batch.reward).to(device)
+    next_state_batch = torch.stack(batch.next_state).to(device)
 
 
     # Find the indices of the last non-zero element in the state_batch
-    indices = torch.nonzero(torch.isinf(next_state_batch).all(dim=2),as_tuple=False)
+    indices = torch.nonzero(torch.isinf(next_state_batch).all(dim=2),as_tuple=False).to(device=device)
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
@@ -389,8 +389,8 @@ def optimize_model():
         next_state_values = target_net(next_state_batch).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
     next_state_values[indices[:,0], indices[:,1]] = 0
     # placeholders for targets and predictions which are padded with zeros rather then the biased outputs
-    policy_placeholder = torch.zeros_like(state_action_values)
-    expected_state_action_values_placeholder = torch.zeros_like(next_state_values)
+    policy_placeholder = torch.zeros_like(state_action_values,device=device)
+    expected_state_action_values_placeholder = torch.zeros_like(next_state_values,device=device)
     if PADDING_MODE == 'end':
         for i in range(BATCH_SIZE):
             if i in indices[:,0]:
@@ -445,7 +445,7 @@ def optimize_model():
 # episodes. Training RL agents can be a noisy process, so restarting training
 # can produce better results if convergence is not observed.
 #
-def collect_rollout(env, memory, device='cpu', spiking=False):
+def collect_rollout(env, memory, device=device, spiking=False):
     if spiking:
         policy_net.reset()
         target_net.reset()
@@ -528,8 +528,8 @@ print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
 print('Complete')
 if PLOTTING=='local':
     plot_durations(show_result=True)
-plt.ioff()
-plt.show()
+    plt.ioff()
+    plt.show()
 
 ######################################################################
 # Here is the diagram that illustrates the overall resulting data flow.
