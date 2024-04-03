@@ -1,65 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Reinforcement Learning (DQN) Tutorial
-=====================================
-**Author**: `Adam Paszke <https://github.com/apaszke>`_
-            `Mark Towers <https://github.com/pseudo-rnd-thoughts>`_
-
-
-This tutorial shows how to use PyTorch to train a Deep Q Learning (DQN) agent
-on the CartPole-v1 task from `Gymnasium <https://gymnasium.farama.org>`__.
-
-**Task**
-
-The agent has to decide between two actions - moving the cart left or
-right - so that the pole attached to it stays upright. You can find more
-information about the environment and other more challenging environments at
-`Gymnasium's website <https://gymnasium.farama.org/environments/classic_control/cart_pole/>`__.
-
-.. figure:: /_static/img/cartpole.gif
-   :alt: CartPole
-
-   CartPole
-
-As the agent observes the current state of the environment and chooses
-an action, the environment *transitions* to a new state, and also
-returns a reward that indicates the consequences of the action. In this
-task, rewards are +1 for every incremental timestep and the environment
-terminates if the pole falls over too far or the cart moves more than 2.4
-units away from center. This means better performing scenarios will run
-for longer duration, accumulating larger return.
-
-The CartPole task is designed so that the inputs to the agent are 4 real
-values representing the environment state (position, velocity, etc.).
-We take these 4 inputs without any scaling and pass them through a 
-small fully-connected network with 2 outputs, one for each action. 
-The network is trained to predict the expected value for each action, 
-given the input state. The action with the highest expected value is 
-then chosen.
-
-
-**Packages**
-
-
-First, let's import needed packages. Firstly, we need
-`gymnasium <https://gymnasium.farama.org/>`__ for the environment,
-installed by using `pip`. This is a fork of the original OpenAI
-Gym project and maintained by the same team since Gym v0.19.
-If you are running this in Google Colab, run:
-
-.. code-block:: bash
-
-   %%bash
-   pip3 install gymnasium[classic_control]
-
-We'll also use the following from PyTorch:
-
--  neural networks (``torch.nn``)
--  optimization (``torch.optim``)
--  automatic differentiation (``torch.autograd``)
-
-"""
-
 import gymnasium as gym
 import math
 import random
@@ -67,13 +5,18 @@ import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
+# from ..CartPole_modified import CartPole_fake
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import numpy as np
+import snntorch
+from snntorch import surrogate
 
 env = gym.make("CartPole-v1")
+# env = CartPole_fake()
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -85,6 +28,13 @@ plt.ion()
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
+
+# set random seeds for reproducibility
+seed = 42
+random.seed(seed)
+torch.manual_seed(seed)
+# env.seed(seed)
+np.random.seed(seed)
 
 ######################################################################
 # Replay Memory
@@ -128,33 +78,39 @@ class ReplayMemory(object):
 
 class ReplayMemory_Full_Seq(object):
 
-    def __init__(self, capacity, interaction_max_length=200, padding='end'):
+    def __init__(self, capacity, interaction_max_length=200, padding='end', tbptt_length=10):
         '''
         Padding can be end or start. 
         End padding will padd the end of the sequence with zeros
-        Start padding will pad the start of the sequence with zeros'''
+        Start padding will pad the start of the sequence with zeros
+        tbptt_length is the truncated backpropagation through time length, which defines the length of the sequences being stored. if None, the full sequence is stored'''
         self.memory = deque([], maxlen=capacity)
         self.max_length = interaction_max_length
         self.padding = padding
+        self.tbptt_length = tbptt_length
 
     def push(self, state, action, next_state, reward):
         """Save a transition"""
         states = torch.zeros((self.max_length, 4))
         actions = torch.zeros((self.max_length, 1))
         next_states = torch.zeros((self.max_length, 4))
-        rewards = torch.zeros((self.max_length, 1))
+        rewards = torch.zeros((self.max_length))
+        
+        #states.fill_(float('inf'))
+        #next_states.fill_(float('inf'))
 
         if state.shape[0] > self.max_length \
             or next_state.shape[0] > self.max_length \
             or action.shape[0] > self.max_length\
             or reward.shape[0] > self.max_length:
+            print(state, action, next_state, reward)
             raise ValueError('Interaction length exceeds maximum length')
         else:
             if self.padding == 'end':
                 states[:state.shape[0]] = state
-                actions[:state.shape[0]] = action
-                next_states[:state.shape[0]] = next_state
-                rewards[:state.shape[0]] = reward
+                actions[:action.shape[0]] = action
+                next_states[:next_state.shape[0]] = next_state
+                rewards[:reward.shape[0]] = reward
             elif self.padding == 'start':
                 states[self.max_length - state.shape[0]:] = state
                 action[self.max_length - state.shape[0]:] = action
@@ -162,8 +118,14 @@ class ReplayMemory_Full_Seq(object):
                 rewards[self.max_length - state.shape[0]:] = reward
             else:
                 raise ValueError('Padding must be either start or end')
-
-        self.memory.append(Transition(states, actions, next_states, rewards))
+        if self.tbptt_length is not None:
+            for i in range(0, self.max_length, self.tbptt_length):
+                if torch.all(torch.all(states[i:] == 0, dim=0)==1):
+                # if torch.isinf(next_state_batch).all(dim=-1):
+                    break
+                self.memory.append(Transition(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length]))
+        else:
+            self.memory.append(Transition(states, actions, next_states, rewards))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -179,14 +141,76 @@ class DQN(nn.Module):
         self.layer1 = nn.Linear(n_observations, 128)
         self.layer2 = nn.Linear(128, 128)
         self.layer3 = nn.Linear(128, n_actions)
+        self.n_actions = n_actions
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
-    def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        return self.layer3(x)
+    def forward(self, state_batch):
+        '''
+        x shape: (batch_size, observation_length, feature_size)'''
+        values = []
+        for i in range(state_batch.shape[1]):
+            if torch.isinf(state_batch[:,i,:]).all():
+                # find way to mask the infinity entries but not the other ones
+                # raise Exception('Infinite value in state batch detected')
+                # return torch.zeros((state_batch.shape[0], state_batch.shape[1], self.n_actions))
+                values.append(torch.zeros((state_batch.shape[0], self.n_actions)))
+        # x = F.relu(self.layer1(x))
+            x = F.relu(self.layer1(state_batch[:,i,:]))
+            x = F.relu(self.layer2(x))
+            x = self.layer3(x)
+            values.append(x)
+        # return x
+        return torch.stack(values, dim=1)
+        
+class DSQN(nn.Module):
+    def __init__(self, n_observations, n_actions, bias=True):
+        '''
+        Output is population coded with linear layer to actions'''
+        super(DSQN, self).__init__()
+        spike_fn = surrogate.fast_sigmoid()
 
+        self.layer1 = nn.Linear(n_observations, 128, bias=bias)
+        betas = torch.rand(128)
+        self.lif1 = snntorch.Leaky(spike_grad=spike_fn, beta=betas, learn_beta=True)
+
+        self.layer2 = nn.Linear(128, 128, bias= bias)
+        betas = torch.rand(128)
+        self.lif2 = snntorch.Leaky(spike_grad=spike_fn, beta=betas, learn_beta=True)
+
+        self.layer3 = nn.Linear(128, n_actions, bias= bias)
+        self.n_actions = n_actions
+
+    def reset(self):
+        self.mem1 = self.lif1.init_leaky()
+        self.mem2 = self.lif2.init_leaky()
+
+    def step_forward(self, x):
+        x = self.layer1(x)
+        spk1, self.mem1 = self.lif1(x,self.mem1)
+        x = self.layer2(spk1)
+        spk2, self.mem2 = self.lif2(x,self.mem2)
+        x = self.layer3(spk2)
+        return x
+    # Called with either one element to determine next action, or a batch
+    # during optimization. Returns tensor([[left0exp,right0exp]...]).
+    def forward(self, state_batch):
+        '''
+        x shape: (batch_size, observation_length, feature_size)'''
+        self.reset()
+
+        values = []
+        for i in range(state_batch.shape[1]):
+
+        # x = F.relu(self.layer1(x))
+            x = self.layer1(state_batch[:,i,:])
+            spk1, self.mem1 = self.lif1(x,self.mem1)
+            x = self.layer2(spk1)
+            spk2, self.mem2 = self.lif2(x,self.mem2)
+            x = self.layer3(spk2)
+            values.append(x)
+        # return x
+        return torch.stack(values, dim=1)
 
 ######################################################################
 # Training
@@ -217,32 +241,43 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 2
+BATCH_SIZE = 256
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
+INTERACTION_MAX_LENGTH = 500
+TBPTT_LENGTH = 50
+PADDING_MODE = 'end'
+GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
+SPIKING = True
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
 # Get the number of state observations
-state, info = env.reset()
+state, info = env.reset(seed=seed)
+
 n_observations = len(state)
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
+if SPIKING:
+    policy_net = DSQN(n_observations, n_actions).to(device)
+    target_net = DSQN(n_observations, n_actions).to(device)
+else:
+    policy_net = DQN(n_observations, n_actions).to(device)
+    target_net = DQN(n_observations, n_actions).to(device)
+
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory_Full_Seq(1000, padding='end')
+memory = ReplayMemory_Full_Seq(10000, padding=PADDING_MODE, interaction_max_length=INTERACTION_MAX_LENGTH, tbptt_length=TBPTT_LENGTH)
 
 
 steps_done = 0
 
 
-def select_action(state):
+def select_action(state, spiking=False):
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
@@ -253,7 +288,10 @@ def select_action(state):
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1).indices.view(1, 1)
+            if spiking:
+                return policy_net.step_forward(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1)
+            else:
+                return policy_net(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
@@ -303,45 +341,76 @@ def plot_durations(show_result=False):
 # `soft update <https://arxiv.org/pdf/1509.02971.pdf>`__ controlled by 
 # the hyperparameter ``TAU``, which was previously defined.
 #
+NR_OPTIMIZATIONS = 0
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
         return
     transitions = memory.sample(BATCH_SIZE)
+
+    # transitions = [Transition(state=torch.tensor([[-0.0373, -0.0251,  0.0144,  0.0172]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.1064, -0.0352,  0.1266,  0.2401]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), reward=torch.tensor([1.]))]
+# 
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
     batch = Transition(*zip(*transitions))
 
-    # Compute a mask of non-final states and concatenate the batch elements
-    # (a final state would've been the one after which simulation ended)
-    # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-    #                                       batch.next_state)), device=device, dtype=torch.bool)
-    # non_final_next_states = torch.cat([s for s in batch.next_state
-    #                                             if s is not None])
-    state_batch = torch.cat(batch.state)
-    action_batch = torch.cat(batch.action)
-    reward_batch = torch.cat(batch.reward)
+    state_batch = torch.stack(batch.state) # (batch_size, n_observations, observation_length)
+    action_batch = torch.stack(batch.action)
+    reward_batch = torch.stack(batch.reward)
+    next_state_batch = torch.stack(batch.next_state)
 
+
+    # Find the indices of the last non-zero element in the state_batch
+    indices = torch.nonzero(torch.isinf(next_state_batch).all(dim=2),as_tuple=False)
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch.to(torch.int64))
+    state_action_values = policy_net(state_batch).gather(2, action_batch.to(torch.int64)).squeeze(2)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
     # on the "older" target_net; selecting their best reward with max(1).values
     # This is merged based on the mask, such that we'll have either the expected
     # state value or 0 in case the state was final.
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    # next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    # for i in range(indices.shape[0]):
+    #     next_state_batch[indices[i]] = 0
     with torch.no_grad():
-        next_state_values = target_net(next_state).max(1).values
+        next_state_values = target_net(next_state_batch).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
+    next_state_values[indices[:,0], indices[:,1]] = 0
+    # placeholders for targets and predictions which are padded with zeros rather then the biased outputs
+    policy_placeholder = torch.zeros_like(state_action_values)
+    expected_state_action_values_placeholder = torch.zeros_like(next_state_values)
+    if PADDING_MODE == 'end':
+        for i in range(BATCH_SIZE):
+            if i in indices[:,0]:
+                j = indices[indices[:,0]==i,1]
+                policy_placeholder[i, :j+1] = state_action_values[i, :j+1]
+                # expected_state_action_values[indices[j,0], indices[j,1]] = 0
+                expected_state_action_values_placeholder[i,:j] = next_state_values[i,:j]
+            # rollout did not stop early
+            else:
+                policy_placeholder[i] = state_action_values[i]
+                expected_state_action_values_placeholder[i] = next_state_values[i]
+        # policy_placeholder[:indices[:,0], indices[:,1]] = state_action_values[:indices[:,0], indices[:,1]]
+        # expected_state_action_values[indices[:,0], indices[:,1]] = 0
+        # expected_state_action_values_placeholder[:indices[:,0], indices[:,1]] = expected_state_action_values[:indices[:,0], indices[:,1]]
+    
+    else:
+        raise ValueError('Padding mode not implemented')
+
     # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    expected_state_action_values = (expected_state_action_values_placeholder * GAMMA) + reward_batch
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    # criterion = nn.MSELoss()
+    # loss = criterion(state_action_values, expected_state_action_values)
+    loss = criterion(policy_placeholder, expected_state_action_values)
+    # check correct padding 
+
+
 
     # Optimize the model
     optimizer.zero_grad()
@@ -349,7 +418,8 @@ def optimize_model():
     # In-place gradient clipping
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
-
+    global NR_OPTIMIZATIONS
+    NR_OPTIMIZATIONS += 1
 
 ######################################################################
 #
@@ -366,14 +436,10 @@ def optimize_model():
 # episodes. Training RL agents can be a noisy process, so restarting training
 # can produce better results if convergence is not observed.
 #
-
-if torch.cuda.is_available():
-    num_episodes = 600
-else:
-    num_episodes = 50
-
-for i_episode in range(num_episodes):
-    # Initialize the environment and get its state
+def collect_rollout(env, memory, device='cpu', spiking=False):
+    if spiking:
+        policy_net.reset()
+        target_net.reset()
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     actions = []
@@ -381,13 +447,17 @@ for i_episode in range(num_episodes):
     next_states = []
     states = [] 
     for t in count():
-        action = select_action(state)
+        # print(state)
+        action = select_action(state,spiking=spiking)
+        # print(action)
+
         observation, reward, terminated, truncated, _ = env.step(action.item())
         reward = torch.tensor([reward], device=device)
         done = terminated or truncated
 
         if terminated:
-            next_state = None
+            # next_state = torch.ones(state.shape, device=device)*10000
+            next_state = torch.tensor(float('inf'), device=device).expand(state.shape)
         else:
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -402,6 +472,35 @@ for i_episode in range(num_episodes):
         # Move to the next state
         state = next_state
 
+        # # Perform one step of the optimization (on the policy network)
+        # optimize_model()
+
+        # # Soft update of the target network's weights
+        # # θ′ ← τ θ + (1 −τ )θ′
+        # target_net_state_dict = target_net.state_dict()
+        # policy_net_state_dict = policy_net.state_dict()
+        # for key in policy_net_state_dict:
+        #     target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+        # target_net.load_state_dict(target_net_state_dict)
+
+        if done:
+            episode_durations.append(t + 1)
+            # print(states)
+            memory.push(torch.cat(states), torch.cat(actions), torch.cat(next_states), torch.cat(rewards))
+            plot_durations()
+            break
+
+
+if torch.cuda.is_available():
+    num_episodes = 600
+else:
+    num_episodes = 600
+
+for i_episode in range(num_episodes):
+    # collect a rollout
+    collect_rollout(env, memory, device,spiking=SPIKING)
+
+    for _ in range(GRADIENT_FREQ):
         # Perform one step of the optimization (on the policy network)
         optimize_model()
 
@@ -413,14 +512,7 @@ for i_episode in range(num_episodes):
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
 
-        if done:
-            episode_durations.append(t + 1)
-            print(states)
-            memory.push(torch.stack(states), torch.stack(actions), torch.stack(next_states), torch.stack(rewards))
-            plot_durations()
-            break
-    
-
+print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
 print('Complete')
 plot_durations(show_result=True)
 plt.ioff()
@@ -438,3 +530,13 @@ plt.show()
 # new policy. The "older" target_net is also used in optimization to compute the
 # expected Q values. A soft update of its weights are performed at every step.
 #
+
+########### DEBUG ############
+# CURRENT MEMORY:
+# deque([Transition(state=tensor([[-0.0373, -0.0251,  0.0144,  0.0172]]), action=tensor([[0]]), next_state=tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), reward=tensor([1.])), Transition(state=tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), action=tensor([[1]]), next_state=tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), reward=tensor([1.])), Transition(state=tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), action=tensor([[0]]), next_state=tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), reward=tensor([1.])), Transition(state=tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), action=tensor([[0]]), next_state=tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), reward=tensor([1.])), Transition(state=tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), action=tensor([[0]]), next_state=tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), reward=tensor([1.])), Transition(state=tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), action=tensor([[1]]), next_state=tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), reward=tensor([1.])), Transition(state=tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), action=tensor([[0]]), next_state=tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), reward=tensor([1.])), Transition(state=tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), action=tensor([[1]]), next_state=tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), reward=tensor([1.])), Transition(state=tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), action=tensor([[1]]), next_state=tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), reward=tensor([1.])), Transition(state=tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), action=tensor([[1]]), next_state=tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), reward=tensor([1.])), Transition(state=tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), action=tensor([[0]]), next_state=tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), reward=tensor([1.])), Transition(state=tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), action=tensor([[1]]), next_state=tensor([[-0.1064, -0.0352,  0.1266,  0.2401]]), reward=tensor([1.]))], maxlen=10000)
+# CURRENT BATCH:
+# [Transition(state=tensor([[-0.0373, -0.0251,  0.0144,  0.0172]]), action=tensor([[0]]), next_state=tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), reward=tensor([1.])), Transition(state=tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), action=tensor([[1]]), next_state=tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), reward=tensor([1.])), Transition(state=tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), action=tensor([[0]]), next_state=tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), reward=tensor([1.])), Transition(state=tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), action=tensor([[0]]), next_state=tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), reward=tensor([1.])), Transition(state=tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), action=tensor([[0]]), next_state=tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), reward=tensor([1.])), Transition(state=tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), action=tensor([[1]]), next_state=tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), reward=tensor([1.])), Transition(state=tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), action=tensor([[1]]), next_state=tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), reward=tensor([1.])), Transition(state=tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), action=tensor([[0]]), next_state=tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), reward=tensor([1.])), Transition(state=tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), action=tensor([[0]]), next_state=tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), reward=tensor([1.])), Transition(state=tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), action=tensor([[1]]), next_state=tensor([[-0.1064, -0.0352,  0.1266,  0.2401]]), reward=tensor([1.])), Transition(state=tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), action=tensor([[1]]), next_state=tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), reward=tensor([1.])), Transition(state=tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), action=tensor([[1]]), next_state=tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), reward=tensor([1.]))]
+# CURRENT LOSS:
+# 0.5024523138999939
+# policy_net.layer3.bias.grad
+# tensor([-0.4953, -0.5000])
