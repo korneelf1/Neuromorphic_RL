@@ -73,7 +73,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np 
+import time
 
+DEBUG = False
+# start time
+t0 = time.time()
 env = gym.make("CartPole-v1")
 
 # set up matplotlib
@@ -86,8 +90,9 @@ plt.ion()
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# if DEBUG:
 # set random seeds for reproducibility
-seed = 1
+seed = 42
 random.seed(seed)
 torch.manual_seed(seed)
 # env.seed(seed)
@@ -224,7 +229,6 @@ class DQN(nn.Module):
         x = F.relu(self.layer2(x))
         return self.layer3(x)
 
-
 ######################################################################
 # Training
 # --------
@@ -254,7 +258,7 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 12
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
@@ -269,7 +273,7 @@ state, info = env.reset(seed=seed)
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
-policy_net.load_state_dict(torch.load('DSQN/policy_net'))
+# policy_net.load_state_dict(torch.load('DSQN/policy_net'))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
@@ -285,7 +289,8 @@ def select_action(state):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
-    # eps_threshold = 0
+    if DEBUG:
+        eps_threshold = 0
     # print('eps_threshold:', eps_threshold)
     steps_done += 1
     if sample > eps_threshold:
@@ -305,7 +310,7 @@ def plot_durations(show_result=False):
     plt.figure(1)
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
     if show_result:
-        plt.title('Result')
+        plt.title('Result DQN')
     else:
         plt.clf()
         plt.title('Training...')
@@ -464,7 +469,7 @@ for i_episode in range(num_episodes):
             plot_durations()
             break
 print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
-print('Complete')
+print('Complete, duration:', time.time()-t0)
 plot_durations(show_result=True)
 plt.ioff()
 plt.show()

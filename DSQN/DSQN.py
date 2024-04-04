@@ -15,7 +15,11 @@ import numpy as np
 import snntorch
 from snntorch import surrogate
 import wandb
+import time
 
+DEBUG = False
+# start timing
+t0 = time.time()
 # BATCH_SIZE is the number of transitions sampled from the replay buffer
 # GAMMA is the discount factor as mentioned in the previous section
 # EPS_START is the starting value of epsilon
@@ -31,12 +35,13 @@ EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 INTERACTION_MAX_LENGTH = 500
-TBPTT_LENGTH = 100
+TBPTT_LENGTH = int(1)
 PADDING_MODE = 'end'
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
 SPIKING = True
-PLOTTING = 'wandb' # local or wandb or none
-ITERATIONS = int(1e3)
+PLOTTING = 'local' # local or wandb or none
+ITERATIONS = int(.6e3)
+WARMUP = 0 # first warmup steps where no optimization is performeds
 
 if PLOTTING=='wandb':
     # set up wandb
@@ -77,12 +82,13 @@ if PLOTTING=='local':
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 print(device)
+# if DEBUG:
 # set random seeds for reproducibility
-# seed = 1
-# random.seed(seed)
-# torch.manual_seed(seed)
-# # env.seed(seed)
-# np.random.seed(seed)
+seed = 42
+random.seed(seed)
+torch.manual_seed(seed)
+# env.seed(seed)
+np.random.seed(seed)
 
 ######################################################################
 # Replay Memory
@@ -107,6 +113,8 @@ print(device)
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
+Transition_Spiking = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward', 'hidden_states'))
 
 
 class ReplayMemory(object):
@@ -126,7 +134,7 @@ class ReplayMemory(object):
 
 class ReplayMemory_Full_Seq(object):
 
-    def __init__(self, capacity, interaction_max_length=200, padding='end', tbptt_length=10):
+    def __init__(self, capacity, interaction_max_length=200, padding='end', tbptt_length=10, keep_hidden_states=False, hidden_states_shape=(128,2)):
         '''
         Padding can be end or start. 
         End padding will padd the end of the sequence with zeros
@@ -136,13 +144,17 @@ class ReplayMemory_Full_Seq(object):
         self.max_length = interaction_max_length
         self.padding = padding
         self.tbptt_length = tbptt_length
+        self.keep_hidden_states = keep_hidden_states
+        self.hidden_shape = hidden_states_shape
 
-    def push(self, state, action, next_state, reward):
+    def push(self, state, action, next_state, reward, hidden_states=None):
         """Save a transition"""
         states = torch.zeros((self.max_length, 4))
         actions = torch.zeros((self.max_length, 1))
         next_states = torch.zeros((self.max_length, 4))
         rewards = torch.zeros((self.max_length))
+        if self.keep_hidden_states:
+            hidden_states = torch.zeros((self.max_length, *self.hidden_shape))
         
         #states.fill_(float('inf'))
         #next_states.fill_(float('inf'))
@@ -159,6 +171,9 @@ class ReplayMemory_Full_Seq(object):
                 actions[:action.shape[0]] = action
                 next_states[:next_state.shape[0]] = next_state
                 rewards[:reward.shape[0]] = reward
+                if self.keep_hidden_states:
+                    hidden_states[:hidden_states.shape[0]] = hidden_states
+
             elif self.padding == 'start':
                 states[self.max_length - state.shape[0]:] = state
                 action[self.max_length - state.shape[0]:] = action
@@ -171,9 +186,15 @@ class ReplayMemory_Full_Seq(object):
                 if torch.all(torch.all(states[i:] == 0, dim=0)==1):
                 # if torch.isinf(next_state_batch).all(dim=-1):
                     break
-                self.memory.append(Transition(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length]))
+                if SPIKING:
+                    self.memory.append(Transition_Spiking(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length], hidden_states[i:i+self.tbptt_length]))
+                else:
+                    self.memory.append(Transition(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length]))
         else:
-            self.memory.append(Transition(states, actions, next_states, rewards))
+            if SPIKING:
+                self.memory.append(Transition_Spiking(states, actions, next_states, rewards, hidden_states))
+            else:
+                self.memory.append(Transition(states, actions, next_states, rewards))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -239,14 +260,16 @@ class DSQN(nn.Module):
         x = self.layer2(spk1)
         spk2, self.mem2 = self.lif2(x,self.mem2)
         x = self.layer3(spk2)
-        return x
+        # torch.cat([self.mem1,self.mem2], dim=1)
+        return x, torch.cat([self.mem1,self.mem2], dim=1).squeeze(0)
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
-    def forward(self, state_batch):
+    def forward(self, state_batch, hidden_states=torch.zeros((BATCH_SIZE,1,128,2), device=device)):
         '''
         x shape: (batch_size, observation_length, feature_size)'''
         self.reset()
-
+        self.mem1 = hidden_states[:,0,:,0]
+        self.mem2 = hidden_states[:,0,:,1]
         values = []
         for i in range(state_batch.shape[1]):
 
@@ -287,7 +310,7 @@ class DSQN(nn.Module):
 # Get number of actions from gym action space
 n_actions = env.action_space.n
 # Get the number of state observations
-state, info = env.reset()
+state, info = env.reset(seed=seed)
 
 n_observations = len(state)
 
@@ -314,16 +337,21 @@ def select_action(state, spiking=False):
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
+    if DEBUG:
+       eps_threshold = 0
     if sample > eps_threshold:
         with torch.no_grad():
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             if spiking:
-                return policy_net.step_forward(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1)
+                out, hidden_state = policy_net.step_forward(state.unsqueeze(0))
+                return out.squeeze(0).max(1).indices.view(1, 1),hidden_state
             else:
                 return policy_net(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
     else:
+        if spiking:
+            return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long), torch.zeros((2,128),device=device)
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
@@ -334,7 +362,7 @@ def plot_durations(show_result=False):
     plt.figure(1)
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
     if show_result:
-        plt.title('Result')
+        plt.title('Result DSQN')
     else:
         plt.clf()
         plt.title('Training...')
@@ -376,9 +404,8 @@ NR_OPTIMIZATIONS = 0
 PRINT_TIMES = False
 def optimize_model():
     if len(memory) < BATCH_SIZE:
-        return
-    if PRINT_TIMES:
-        t1 = t.time()
+        return False
+    assert WARMUP<TBPTT_LENGTH, 'Warmup steps must be less than TBPTT_LENGTH'
     transitions = memory.sample(BATCH_SIZE)
 
     # transitions = [Transition(state=torch.tensor([[-0.0373, -0.0251,  0.0144,  0.0172]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0378, -0.2205,  0.0147,  0.3144]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0967, -0.2254,  0.1049,  0.4255]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.1012, -0.0319,  0.1134,  0.1676]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0471, -0.4164,  0.0280,  0.6250]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0422, -0.0256,  0.0210,  0.0263]]), action=torch.tensor([[0]]), next_state=torch.tensor([[-0.0427, -0.2210,  0.0215,  0.3256]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.1018, -0.2285,  0.1168,  0.4938]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.1064, -0.0352,  0.1266,  0.2401]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0554, -0.6119,  0.0405,  0.9263]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0677, -0.4173,  0.0591,  0.6467]]), reward=torch.tensor([1.])), Transition(state=torch.tensor([[-0.0760, -0.6132,  0.0720,  0.9574]]), action=torch.tensor([[1]]), next_state=torch.tensor([[-0.0883, -0.4192,  0.0911,  0.6881]]), reward=torch.tensor([1.]))]
@@ -386,44 +413,53 @@ def optimize_model():
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
-    batch = Transition(*zip(*transitions))
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\tSampling:', t2-t1)
-        t1 = t.time()
+    if SPIKING:
+        batch = Transition_Spiking(*zip(*transitions))
+    else:
+        batch = Transition(*zip(*transitions))
+
     state_batch = torch.stack(batch.state).to(device) # (batch_size, n_observations, observation_length)
     action_batch = torch.stack(batch.action).to(device)
     reward_batch = torch.stack(batch.reward).to(device)
     next_state_batch = torch.stack(batch.next_state).to(device)
-
-
-    # Find the indices of the last non-zero element in the state_batch
-    indices = torch.nonzero(torch.isinf(next_state_batch).all(dim=2),as_tuple=False).to(device=device)
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\tStacking:', t2-t1)
+    if SPIKING:
+        hidden_states = torch.stack(batch.hidden_states).to(device)
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
-        t1 = t.time()
-    state_action_values = policy_net(state_batch).gather(2, action_batch.to(torch.int64)).squeeze(2)
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\tGather:', t2-t1)
+        
+        state_action_values = policy_net(state_batch,hidden_states).gather(2, action_batch.to(torch.int64)).squeeze(2)
+
         # Compute V(s_{t+1}) for all next states.
         # Expected values of actions for non_final_next_states are computed based
         # on the "older" target_net; selecting their best reward with max(1).values
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        t1 = t.time()   
-    with torch.no_grad():
-        next_state_values = target_net(next_state_batch).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\tTarget:', t2-t1)
-        # placeholders for targets and predictions which are padded with zeros rather then the biased outputs
-        t1 = t.time()
-    
+        with torch.no_grad():
+            next_state_values = target_net(next_state_batch,hidden_states).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
+
+    else:
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+        # columns of actions taken. These are the actions which would've been taken
+        # for each batch state according to policy_net
+        
+        state_action_values = policy_net(state_batch).gather(2, action_batch.to(torch.int64)).squeeze(2)
+
+        # Compute V(s_{t+1}) for all next states.
+        # Expected values of actions for non_final_next_states are computed based
+        # on the "older" target_net; selecting their best reward with max(1).values
+        # This is merged based on the mask, such that we'll have either the expected
+        # state value or 0 in case the state was final.
+        with torch.no_grad():
+            next_state_values = target_net(next_state_batch).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
+
+    # Find the indices of the last non-zero element in the state_batch
+    # indices = torch.ones(BATCH_SIZE,dtype=torch.int64, device=device)*TBPTT_LENGTH # create tensor of indices with the last index
+    indices = torch.nonzero(torch.isinf(next_state_batch).all(dim=2),as_tuple=False).to(device=device)
+    # indices[final_states[:,0]] = final_states[:,1]
+
+    # placeholders for targets and predictions which are padded with zeros rather then the biased outputs
+
     if PADDING_MODE == 'end':
         
      
@@ -433,13 +469,9 @@ def optimize_model():
    
     else:
         raise ValueError('Padding mode not implemented')
-    policy_placeholder = state_action_values
-    expected_state_action_values_placeholder = next_state_values
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\Padding:', t2-t1)
+    # policy_placeholder = state_action_values
+    # expected_state_action_values_placeholder = next_state_values
 
-    # print('\t\tPadding:', t2-t1)
     # policy_placeholder = torch.zeros_like(state_action_values,device=device)
     # expected_state_action_values_placeholder = torch.zeros_like(next_state_values,device=device)
     # state_action_values[indices[:,0], indices[:,1]+1:] = 0
@@ -448,27 +480,24 @@ def optimize_model():
     #     for i in range(BATCH_SIZE):
     #         if i in indices[:,0]:
     #             j = indices[indices[:,0]==i,1]
-    #             policy_placeholder[i, :j+1] = state_action_values[i, :j+1]
+    #             # policy_placeholder[i, :j+1] = state_action_values[i, :j+1]
     #             expected_state_action_values_placeholder[i,:j] = next_state_values[i,:j]
     #         # rollout did not stop early
     #         else:
-    #             policy_placeholder[i] = state_action_values[i]
+    #             # policy_placeholder[i] = state_action_values[i]
     #             expected_state_action_values_placeholder[i] = next_state_values[i]
 
     # else:
     #     raise ValueError('Padding mode not implemented')
-    # t2 = t.time()
-    # print('\t\tPadding:', t2-t1)
-    if PRINT_TIMES:
-        t1 = t.time()
+
     # Compute the expected Q values
-    expected_state_action_values = (expected_state_action_values_placeholder * GAMMA) + reward_batch
+    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
     # criterion = nn.MSELoss()
-    # loss = criterion(state_action_values, expected_state_action_values)
-    loss = criterion(policy_placeholder, expected_state_action_values)
+    loss = criterion(state_action_values, expected_state_action_values)
+    # loss = criterion(policy_placeholder, expected_state_action_values)
     # check correct padding 
 
 
@@ -479,11 +508,11 @@ def optimize_model():
     # In-place gradient clipping
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('\t\tOptimization:', t2-t1)
+
     global NR_OPTIMIZATIONS
     NR_OPTIMIZATIONS += 1
+
+    return True
 
 ######################################################################
 #
@@ -510,9 +539,13 @@ def collect_rollout(env, memory, device=device, spiking=False):
     rewards = []
     next_states = []
     states = [] 
+    hidden_states = []
     for t in count():
         # print(state)
         action = select_action(state,spiking=spiking)
+        if spiking:
+            action, hidden_state = action
+            hidden_states.append(hidden_state)
         # print(action)
 
         observation, reward, terminated, truncated, _ = env.step(action.item())
@@ -530,9 +563,7 @@ def collect_rollout(env, memory, device=device, spiking=False):
         actions.append(action)
         rewards.append(reward)
         next_states.append(next_state)
-
         
-
         # Move to the next state
         state = next_state
 
@@ -550,7 +581,10 @@ def collect_rollout(env, memory, device=device, spiking=False):
         if done:
             episode_durations.append(t + 1)
             # print(states)
-            memory.push(torch.cat(states), torch.cat(actions), torch.cat(next_states), torch.cat(rewards))
+            if spiking:
+                memory.push(torch.cat(states), torch.cat(actions), torch.cat(next_states), torch.cat(rewards), torch.cat(hidden_states))
+            else:
+                memory.push(torch.cat(states), torch.cat(actions), torch.cat(next_states), torch.cat(rewards))
             if PLOTTING=='local':
                 plot_durations()
             elif PLOTTING=='wandb':
@@ -576,37 +610,25 @@ else:
 
 for i_episode in range(num_episodes):
     # collect a rollout
-    if PRINT_TIMES:
-        t1 = t.time()
     time_episode = collect_rollout(env, memory, device,spiking=SPIKING)
-    if PRINT_TIMES:
-        t2 = t.time()
-        print('Collecting rollout:', i_episode, 'Duration:', t2-t1)
     
     # time_episode=3
     for _ in range(time_episode):
         # Perform one step of the optimization (on the policy network)
-        if PRINT_TIMES:
-            t1 = t.time()
-        optimize_model()
-        if PRINT_TIMES:
-            t2 = t.time()
-            print('\tSingle Training Step:', i_episode, 'Duration:', t2-t1)
-        # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-            t1 = t.time()
-        target_net_state_dict = target_net.state_dict()
-        policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net.load_state_dict(target_net_state_dict)
-        if PRINT_TIMES:
-            t2 = t.time()
-            print('\tSoft Update:', i_episode, 'Duration:', t2-t1)
+
+        optimized = optimize_model()
+        if optimized:
+            # Soft update of the target network's weights
+            # θ′ ← τ θ + (1 −τ )θ′
+            target_net_state_dict = target_net.state_dict()
+            policy_net_state_dict = policy_net.state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+            target_net.load_state_dict(target_net_state_dict)
 
 print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
 
-print('Complete')
+print('Complete, duration:', time.time()-t0)
 if PLOTTING=='local':
     plot_durations(show_result=True)
     plt.ioff()

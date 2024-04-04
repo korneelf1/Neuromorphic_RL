@@ -1,0 +1,41 @@
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Current SDK version is 0.16.5
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Configure stats pid to 29195
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Loading settings from /Users/korneel/.config/wandb/settings
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Loading settings from /Users/korneel/coding/A3C/wandb/settings
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Loading settings from environment variables: {}
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Applying setup settings: {'_disable_service': False}
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'DSQN/DSQN.py', 'program_abspath': '/Users/korneel/coding/A3C/DSQN/DSQN.py', 'program': '/Users/korneel/coding/A3C/DSQN/DSQN.py'}
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_setup.py:_flush():76] Applying login settings: {}
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_init.py:_log_setup():527] Logging user logs to /Users/korneel/coding/A3C/wandb/run-20240404_103807-46bihveb/logs/debug.log
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_init.py:_log_setup():528] Logging internal logs to /Users/korneel/coding/A3C/wandb/run-20240404_103807-46bihveb/logs/debug-internal.log
+2024-04-04 10:38:07,472 INFO    MainThread:29195 [wandb_init.py:init():567] calling init triggers
+2024-04-04 10:38:07,473 INFO    MainThread:29195 [wandb_init.py:init():574] wandb.init called with sweep_config: {}
+config: {'algorithm': 'DSQN', 'SPIKING': True, 'BATCH_SIZE': 12, 'TBPTT_LENGTH': 5, 'PADDING_MODE': 'end', 'EPS_START': 0.9, 'EPS_END': 0.05, 'EPS_DECAY': 1000, 'GAMMA': 0.99, 'TAU': 0.005, 'LR': 0.0001, 'GRADIENT_FREQ': 50, 'INTERACTION_MAX_LENGTH': 500}
+2024-04-04 10:38:07,473 INFO    MainThread:29195 [wandb_init.py:init():617] starting backend
+2024-04-04 10:38:07,473 INFO    MainThread:29195 [wandb_init.py:init():621] setting up manager
+2024-04-04 10:38:07,475 INFO    MainThread:29195 [backend.py:_multiprocessing_setup():105] multiprocessing start_methods=spawn,fork,forkserver, using: spawn
+2024-04-04 10:38:07,477 INFO    MainThread:29195 [wandb_init.py:init():629] backend started and connected
+2024-04-04 10:38:07,481 INFO    MainThread:29195 [wandb_init.py:init():721] updated telemetry
+2024-04-04 10:38:07,506 INFO    MainThread:29195 [wandb_init.py:init():754] communicating run to backend with 90.0 second timeout
+2024-04-04 10:38:07,900 INFO    MainThread:29195 [wandb_run.py:_on_init():2344] communicating current version
+2024-04-04 10:38:07,961 INFO    MainThread:29195 [wandb_run.py:_on_init():2353] got version response upgrade_message: "wandb version 0.16.6 is available!  To upgrade, please run:\n $ pip install wandb --upgrade"
+
+2024-04-04 10:38:07,961 INFO    MainThread:29195 [wandb_init.py:init():805] starting run threads in backend
+2024-04-04 10:38:08,931 WARNING MainThread:29195 [wandb_init.py:init():1209] interrupted
+Traceback (most recent call last):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/wandb_init.py", line 1187, in init
+    run = wi.init()
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/wandb_init.py", line 818, in init
+    run_start_result = run_start_handle.wait(timeout=30)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/lib/mailbox.py", line 283, in wait
+    found, abandoned = self._slot._get_and_clear(timeout=wait_timeout)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/lib/mailbox.py", line 130, in _get_and_clear
+    if self._wait(timeout=timeout):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/lib/mailbox.py", line 126, in _wait
+    return self._event.wait(timeout=timeout)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/threading.py", line 581, in wait
+    signaled = self._cond.wait(timeout)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/threading.py", line 316, in wait
+    gotit = waiter.acquire(True, timeout)
+KeyboardInterrupt
+2024-04-04 10:38:15,639 WARNING MsgRouterThr:29195 [router.py:message_loop():77] message_loop has been closed

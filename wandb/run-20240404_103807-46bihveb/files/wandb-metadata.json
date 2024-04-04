@@ -1,0 +1,37 @@
+{
+    "os": "macOS-13.5.2-arm64-arm-64bit",
+    "python": "3.9.18",
+    "heartbeatAt": "2024-04-04T08:38:07.973060",
+    "startedAt": "2024-04-04T08:38:07.468874",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/Users/korneel/coding/A3C/DSQN/DSQN.py",
+    "codePathLocal": "DSQN/DSQN.py",
+    "codePath": "DSQN/DSQN.py",
+    "git": {
+        "remote": "https://github.com/korneelf1/Neuromorphic_RL.git",
+        "commit": "ac5fd9c96d150cb8d947f26982929fd32858d279"
+    },
+    "email": "korneel.vandenberghe@hotmail.be",
+    "root": "/Users/korneel/coding/A3C",
+    "host": "Mac-mini.local",
+    "username": "Korneel",
+    "executable": "/Users/korneel/anaconda3/envs/locomotion_env/bin/python",
+    "cpu_count": 8,
+    "cpu_count_logical": 8,
+    "disk": {
+        "/": {
+            "total": 460.4317207336426,
+            "used": 11.102210998535156
+        }
+    },
+    "gpuapple": {
+        "type": "arm",
+        "vendor": "Apple"
+    },
+    "memory": {
+        "total": 16.0
+    }
+}
