@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/korneel/coding/A3C/DSQN/DSQN.py", line 290, in <module>
+    state, info = env.reset(seed=seed)
+NameError: name 'seed' is not defined
+mps

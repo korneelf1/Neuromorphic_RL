@@ -1,0 +1,6 @@
+
+mps
+Traceback (most recent call last):
+  File "/Users/korneel/coding/A3C/DSQN/pytorch_example.py", line 525, in <module>
+  File "/Users/korneel/coding/A3C/DSQN/pytorch_example.py", line 408, in optimize_model
+KeyboardInterrupt

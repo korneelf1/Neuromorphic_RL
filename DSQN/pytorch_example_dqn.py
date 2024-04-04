@@ -87,7 +87,7 @@ plt.ion()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # set random seeds for reproducibility
-seed = 42
+seed = 1
 random.seed(seed)
 torch.manual_seed(seed)
 # env.seed(seed)

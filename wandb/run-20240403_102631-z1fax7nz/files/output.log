@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/korneel/coding/A3C/DSQN/pytorch_example.py", line 55, in <module>
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.cuda.is_mps_available() else "cpu")
+AttributeError: module 'torch.cuda' has no attribute 'is_mps_available'

@@ -1,0 +1,29 @@
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Current SDK version is 0.16.5
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Configure stats pid to 46147
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Loading settings from /Users/korneel/.config/wandb/settings
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Loading settings from /Users/korneel/coding/A3C/wandb/settings
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Loading settings from environment variables: {}
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Applying setup settings: {'_disable_service': False}
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'DSQN/pytorch_example.py', 'program_abspath': '/Users/korneel/coding/A3C/DSQN/pytorch_example.py', 'program': '/Users/korneel/coding/A3C/DSQN/pytorch_example.py'}
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_setup.py:_flush():76] Applying login settings: {}
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:_log_setup():527] Logging user logs to /Users/korneel/coding/A3C/wandb/run-20240403_104044-zotm1khw/logs/debug.log
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:_log_setup():528] Logging internal logs to /Users/korneel/coding/A3C/wandb/run-20240403_104044-zotm1khw/logs/debug-internal.log
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:init():567] calling init triggers
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:init():574] wandb.init called with sweep_config: {}
+config: {'algorithm': 'DSQN', 'learning_rate': 0.01, 'SPIKING': True, 'BATCH_SIZE': 128, 'TBPTT_LENGTH': 5, 'PADDING_MODE': 'end', 'EPS_START': 0.9, 'EPS_END': 0.05, 'EPS_DECAY': 1000, 'GAMMA': 0.99, 'TAU': 0.005, 'LR': 0.0001, 'GRADIENT_FREQ': 25, 'INTERACTION_MAX_LENGTH': 500}
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:init():617] starting backend
+2024-04-03 10:40:44,670 INFO    MainThread:46147 [wandb_init.py:init():621] setting up manager
+2024-04-03 10:40:44,671 INFO    MainThread:46147 [backend.py:_multiprocessing_setup():105] multiprocessing start_methods=spawn,fork,forkserver, using: spawn
+2024-04-03 10:40:44,672 INFO    MainThread:46147 [wandb_init.py:init():629] backend started and connected
+2024-04-03 10:40:44,674 INFO    MainThread:46147 [wandb_init.py:init():721] updated telemetry
+2024-04-03 10:40:44,690 INFO    MainThread:46147 [wandb_init.py:init():754] communicating run to backend with 90.0 second timeout
+2024-04-03 10:40:45,195 INFO    MainThread:46147 [wandb_run.py:_on_init():2344] communicating current version
+2024-04-03 10:40:45,288 INFO    MainThread:46147 [wandb_run.py:_on_init():2353] got version response 
+2024-04-03 10:40:45,288 INFO    MainThread:46147 [wandb_init.py:init():805] starting run threads in backend
+2024-04-03 10:40:46,774 INFO    MainThread:46147 [wandb_run.py:_console_start():2323] atexit reg
+2024-04-03 10:40:46,774 INFO    MainThread:46147 [wandb_run.py:_redirect():2178] redirect: wrap_raw
+2024-04-03 10:40:46,774 INFO    MainThread:46147 [wandb_run.py:_redirect():2243] Wrapping output streams.
+2024-04-03 10:40:46,774 INFO    MainThread:46147 [wandb_run.py:_redirect():2268] Redirects installed.
+2024-04-03 10:40:46,774 INFO    MainThread:46147 [wandb_init.py:init():848] run started, returning control to user process
+2024-04-03 10:40:46,803 INFO    MainThread:46147 [wandb_watch.py:watch():51] Watching
+2024-04-03 10:40:54,313 WARNING MsgRouterThr:46147 [router.py:message_loop():77] message_loop has been closed

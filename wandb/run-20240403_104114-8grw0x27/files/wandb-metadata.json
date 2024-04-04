@@ -1,0 +1,37 @@
+{
+    "os": "macOS-13.5.2-arm64-arm-64bit",
+    "python": "3.9.18",
+    "heartbeatAt": "2024-04-03T14:41:14.690601",
+    "startedAt": "2024-04-03T14:41:14.056878",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/Users/korneel/coding/A3C/DSQN/pytorch_example.py",
+    "codePathLocal": "DSQN/pytorch_example.py",
+    "codePath": "DSQN/pytorch_example.py",
+    "git": {
+        "remote": "https://github.com/korneelf1/Neuromorphic_RL.git",
+        "commit": "b687f2371afd91983d5c83933a4f807cbdd18f99"
+    },
+    "email": "korneel.vandenberghe@hotmail.be",
+    "root": "/Users/korneel/coding/A3C",
+    "host": "Mac-mini.local",
+    "username": "Korneel",
+    "executable": "/Users/korneel/anaconda3/envs/locomotion_env/bin/python",
+    "cpu_count": 8,
+    "cpu_count_logical": 8,
+    "disk": {
+        "/": {
+            "total": 460.4317207336426,
+            "used": 11.102210998535156
+        }
+    },
+    "gpuapple": {
+        "type": "arm",
+        "vendor": "Apple"
+    },
+    "memory": {
+        "total": 16.0
+    }
+}
