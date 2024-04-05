@@ -24,7 +24,7 @@ DEBUG = False
 # start timing
 t0 = time.time()
 
-BATCH_SIZE = 128 # number of transitions sampled from the replay buffer
+BATCH_SIZE = 12 # number of transitions sampled from the replay buffer
 GAMMA = 0.99 # discount factor as mentioned in the previous section
 EPS_START = 0.9 # starting value of epsilon
 EPS_END = 0.05 # final value of epsilon
@@ -32,10 +32,10 @@ EPS_DECAY = 1000 # controls the rate of exponential decay of epsilon, higher mea
 TAU = 0.005 # update rate of the target network
 LR = 1e-4 # learning rate of the ``AdamW`` optimizer
 INTERACTION_MAX_LENGTH = 500 # maximum length of an interaction
-TBPTT_LENGTH = int(1) # truncated backpropagation through time length
+TBPTT_LENGTH = int(2) # truncated backpropagation through time length
 PADDING_MODE = 'end' # padding mode for the replay buffer
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
-SPIKING = False # use spiking or non-spiking network
+SPIKING = True # use spiking or non-spiking network
 PLOTTING = 'local' # local or wandb or none
 ITERATIONS = int(1e3) # number of training iterations (corresponding to collections of rollouts)
 WARMUP = 0 # first warmup steps where no optimization is performeds
@@ -66,7 +66,7 @@ if PLOTTING=='wandb':
     
 
 env = gym.make("CartPole-v1")
-env.action_space.seed(seed)
+env.action_space.seed(14)
 
 if PLOTTING=='local':
     # set up matplotlib
@@ -126,8 +126,8 @@ state, info = env.reset(seed=seed)
 n_observations = len(state)
 
 if SPIKING:
-    policy_net = DSQN(n_observations, n_actions).to(device)
-    target_net = DSQN(n_observations, n_actions).to(device)
+    policy_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE).to(device)
+    target_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE).to(device)
 else:
     policy_net = DQN(n_observations, n_actions).to(device)
     target_net = DQN(n_observations, n_actions).to(device)

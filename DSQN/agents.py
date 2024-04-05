@@ -65,15 +65,24 @@ class DSQN(nn.Module):
     def reset(self):
         self.mem1 = self.lif1.init_leaky()
         self.mem2 = self.lif2.init_leaky()
-
+        
     def step_forward(self, x):
         x = self.layer1(x)
+
+        if len(self.mem1)==0:
+            # reset to zeros!
+            self.mem1 = torch.zeros((1,1,128), device=self.device)
+            self.mem2 = torch.zeros((1,1,128), device=self.device)
+
+        # we need to store memories before updating them
+        og_mem1 = self.mem1
+        og_mem2 = self.mem2
         spk1, self.mem1 = self.lif1(x,self.mem1)
         x = self.layer2(spk1)
         spk2, self.mem2 = self.lif2(x,self.mem2)
         x = self.layer3(spk2)
         # torch.cat([self.mem1,self.mem2], dim=1)
-        return x, torch.cat([self.mem1,self.mem2], dim=1).squeeze(0)
+        return x, torch.cat([og_mem1,og_mem2], dim=1).squeeze(0)
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, state_batch, hidden_states=None):
