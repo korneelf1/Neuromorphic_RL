@@ -1,0 +1,62 @@
+wandb_version: 1
+
+algorithm:
+  desc: null
+  value: DSQN
+SPIKING:
+  desc: null
+  value: false
+BATCH_SIZE:
+  desc: null
+  value: 128
+TBPTT_LENGTH:
+  desc: null
+  value: 5
+PADDING_MODE:
+  desc: null
+  value: end
+EPS_START:
+  desc: null
+  value: 0.9
+EPS_END:
+  desc: null
+  value: 0.05
+EPS_DECAY:
+  desc: null
+  value: 1000
+GAMMA:
+  desc: null
+  value: 0.99
+TAU:
+  desc: null
+  value: 0.005
+LR:
+  desc: null
+  value: 0.0001
+GRADIENT_FREQ:
+  desc: null
+  value: 50
+INTERACTION_MAX_LENGTH:
+  desc: null
+  value: 500
+_wandb:
+  desc: null
+  value:
+    python_version: 3.9.18
+    cli_version: 0.16.5
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1712305076.0
+    t:
+      1:
+      - 1
+      - 55
+      3:
+      - 16
+      - 23
+      4: 3.9.18
+      5: 0.16.5
+      8:
+      - 5
+      13: darwin-arm64

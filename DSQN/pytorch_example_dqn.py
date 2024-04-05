@@ -92,12 +92,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # if DEBUG:
 # set random seeds for reproducibility
-seed = 42
+seed = 7
 random.seed(seed)
 torch.manual_seed(seed)
 # env.seed(seed)
 np.random.seed(seed)
-
+env.action_space.seed(seed)
 ######################################################################
 # Replay Memory
 # -------------

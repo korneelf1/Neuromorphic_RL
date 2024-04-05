@@ -1,0 +1,90 @@
+2024-04-05 10:17:56,933 INFO    StreamThr :97575 [internal.py:wandb_internal():86] W&B internal server running at pid: 97575, started at: 2024-04-05 10:17:56.932493
+2024-04-05 10:17:56,934 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: status
+2024-04-05 10:17:56,938 INFO    WriterThread:97575 [datastore.py:open_for_write():87] open: /Users/korneel/coding/A3C/wandb/run-20240405_101756-7s3siv7z/run-7s3siv7z.wandb
+2024-04-05 10:17:56,938 DEBUG   SenderThread:97575 [sender.py:send():379] send: header
+2024-04-05 10:17:56,963 DEBUG   SenderThread:97575 [sender.py:send():379] send: run
+2024-04-05 10:18:00,244 INFO    SenderThread:97575 [retry.py:__call__():172] Retry attempt failed:
+Traceback (most recent call last):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connection.py", line 203, in _new_conn
+    sock = connection.create_connection(
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/util/connection.py", line 60, in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/socket.py", line 954, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connectionpool.py", line 790, in urlopen
+    response = self._make_request(
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connectionpool.py", line 491, in _make_request
+    raise new_e
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connectionpool.py", line 467, in _make_request
+    self._validate_conn(conn)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connectionpool.py", line 1096, in _validate_conn
+    conn.connect()
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connection.py", line 611, in connect
+    self.sock = sock = self._new_conn()
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connection.py", line 210, in _new_conn
+    raise NameResolutionError(self.host, self, e) from e
+urllib3.exceptions.NameResolutionError: <urllib3.connection.HTTPSConnection object at 0x117dd9be0>: Failed to resolve 'api.wandb.ai' ([Errno 8] nodename nor servname provided, or not known)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/requests/adapters.py", line 486, in send
+    resp = conn.urlopen(
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/connectionpool.py", line 844, in urlopen
+    retries = retries.increment(
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/urllib3/util/retry.py", line 515, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.wandb.ai', port=443): Max retries exceeded with url: /graphql (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x117dd9be0>: Failed to resolve 'api.wandb.ai' ([Errno 8] nodename nor servname provided, or not known)"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/lib/retry.py", line 131, in __call__
+    result = self._call_fn(*args, **kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/internal/internal_api.py", line 369, in execute
+    return self.client.execute(*args, **kwargs)  # type: ignore
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/vendor/gql-0.2.0/wandb_gql/client.py", line 52, in execute
+    result = self._get_result(document, *args, **kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/vendor/gql-0.2.0/wandb_gql/client.py", line 60, in _get_result
+    return self.transport.execute(document, *args, **kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/wandb/sdk/lib/gql_request.py", line 58, in execute
+    request = self.session.post(self.url, **post_args)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/requests/sessions.py", line 637, in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/korneel/anaconda3/envs/locomotion_env/lib/python3.9/site-packages/requests/adapters.py", line 519, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='api.wandb.ai', port=443): Max retries exceeded with url: /graphql (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x117dd9be0>: Failed to resolve 'api.wandb.ai' ([Errno 8] nodename nor servname provided, or not known)"))
+2024-04-05 10:18:01,983 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:07,003 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:12,021 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:17,045 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:22,065 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:27,088 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:32,110 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:37,133 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:42,154 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:47,179 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:52,196 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:18:57,212 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:02,226 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:07,250 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:12,265 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:17,286 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:22,308 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: keepalive
+2024-04-05 10:19:27,327 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: cancel
+2024-04-05 10:19:27,328 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: cancel
+2024-04-05 10:19:27,328 DEBUG   SenderThread:97575 [sender.py:send():388] Record cancelled: run
+2024-04-05 10:19:27,328 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: status_report
+2024-04-05 10:19:27,345 DEBUG   HandlerThread:97575 [handler.py:handle_request():146] handle_request: shutdown
+2024-04-05 10:19:27,345 INFO    HandlerThread:97575 [handler.py:finish():866] shutting down handler
+2024-04-05 10:19:28,333 INFO    SenderThread:97575 [sender.py:finish():1546] shutting down sender
+2024-04-05 10:19:28,334 INFO    WriterThread:97575 [datastore.py:close():296] close: /Users/korneel/coding/A3C/wandb/run-20240405_101756-7s3siv7z/run-7s3siv7z.wandb

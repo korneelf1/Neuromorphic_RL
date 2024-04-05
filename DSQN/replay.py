@@ -1,250 +1,122 @@
 import random
-from collections import deque, namedtuple
-
-Transition = namedtuple('Transition', ('states', 'actions', 'rewards', 'next_states', 'dones'))
-
-class ReplayBuffer:
-    def __init__(self, max_size):
-        self.buffer = deque(maxlen=max_size)
-
-    def add(self, states, actions, rewards, next_states, dones):
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size, sequence_length):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = [], [], [], [], []
-
-        for experience in batch:
-            state, action, reward, next_state, done = experience
-            start_index = random.randint(0, len(state) - sequence_length)
-
-            states.append(state[start_index:start_index+sequence_length])
-            actions.append(action)
-            rewards.append(reward)
-            next_states.append(next_state[start_index:start_index+sequence_length])
-            dones.append(done)
-
-        return states, actions, rewards, next_states, dones
+from collections import namedtuple, deque
+# from ..CartPole_modified import CartPole_fake
 
 import torch
-from gymnasium import spaces
-import numpy as np
 
-class Buffer_PPO():
-    """The buffer stores and prepares the training data. It supports recurrent policies. """
-    def __init__(self, config:dict, observation_space:spaces.Box, action_space_shape:tuple, device:torch.device) -> None:
-        """
-        Arguments:
-            config {dict} -- Configuration and hyperparameters of the environment, trainer and model.
-            observation_space {spaces.Box} -- The observation space of the agent
-            action_space_shape {tuple} -- Shape of the action space
-            device {torch.device} -- The device that will be used for training
-        """
-        # Setup members
-        self.device = device
-        self.n_workers = config["n_workers"]
-        self.worker_steps = config["worker_steps"]
-        self.n_mini_batches = config["n_mini_batch"]
-        self.batch_size = self.n_workers * self.worker_steps
-        self.mini_batch_size = self.batch_size // self.n_mini_batches
-        hidden_state_size = config["spiking"]["hidden_state_size"]
-        self.neuron_type = config["spiking"]["neuron_type"]
-        self.sequence_length = config["recurrence"]["sequence_length"]
-        self.true_sequence_length = 0
 
-        # Initialize the buffer's data storage
-        self.rewards = np.zeros((self.n_workers, self.worker_steps), dtype=np.float32)
-        self.actions = torch.zeros((self.n_workers, self.worker_steps, len(action_space_shape)), dtype=torch.long)
-        self.dones = np.zeros((self.n_workers, self.worker_steps), dtype=np.bool)
-        self.obs = torch.zeros((self.n_workers, self.worker_steps) + observation_space.shape)
-        self.mem_pot = torch.zeros((self.n_workers, self.worker_steps, hidden_state_size))
 
-        self.log_probs = torch.zeros((self.n_workers, self.worker_steps, len(action_space_shape)))
-        self.values = torch.zeros((self.n_workers, self.worker_steps))
-        self.advantages = torch.zeros((self.n_workers, self.worker_steps))
+import random
+from collections import deque, namedtuple
+######################################################################
+# Replay Memory
+# -------------
+#
+# We'll be using experience replay memory for training our DQN. It stores
+# the transitions that the agent observes, allowing us to reuse this data
+# later. By sampling from it randomly, the transitions that build up a
+# batch are decorrelated. It has been shown that this greatly stabilizes
+# and improves the DQN training procedure.
+#
+# For this, we're going to need two classes:
+#
+# -  ``Transition`` - a named tuple representing a single transition in
+#    our environment. It essentially maps (state, action) pairs
+#    to their (next_state, reward) result, with the state being the
+#    screen difference image as described later on.
+# -  ``ReplayMemory`` - a cyclic buffer of bounded size that holds the
+#    transitions observed recently. It also implements a ``.sample()``
+#    method for selecting a random batch of transitions for training.
+#
 
-    def prepare_batch_dict(self) -> None:
-        """Flattens the training samples and stores them inside a dictionary. Due to using a recurrent policy,
-        the data is split into episodes or sequences beforehand.
-        """
-        # Supply training samples
-        samples = {
-            "obs": self.obs,
-            "actions": self.actions,
-            # The loss mask is used for masking the padding while computing the loss function.
-            # This is only of significance while using recurrence.
-            "loss_mask": torch.ones((self.n_workers, self.worker_steps), dtype=torch.bool)
-        }
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+Transition_Spiking = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward', 'hidden_states'))
+
+
+class ReplayMemory(object):
+
+    def __init__(self, capacity):
+        self.memory = deque([], maxlen=capacity)
+
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
+
+class ReplayMemory_Full_Seq(object):
+
+    def __init__(self, capacity, interaction_max_length=200, padding='end', tbptt_length=10, keep_hidden_states=False, hidden_states_shape=(2,128)):
+        '''
+        Padding can be end or start. 
+        End padding will padd the end of the sequence with zeros
+        Start padding will pad the start of the sequence with zeros
+        tbptt_length is the truncated backpropagation through time length, which defines the length of the sequences being stored. if None, the full sequence is stored'''
+        self.memory = deque([], maxlen=capacity)
+        self.max_length = interaction_max_length
+        self.padding = padding
+        self.tbptt_length = tbptt_length
+        self.keep_hidden_states = keep_hidden_states
+        self.hidden_shape = hidden_states_shape
+
+    def push(self, state, action, next_state, reward, hidden_state=None):
+        """Save a transition"""
+        states = torch.zeros((self.max_length, 4))
+        actions = torch.zeros((self.max_length, 1))
+        next_states = torch.zeros((self.max_length, 4))
+        rewards = torch.zeros((self.max_length))
+        if self.keep_hidden_states:
+            hidden_states = torch.zeros((self.max_length, *self.hidden_shape))
         
-        # Add data concerned with the memory based on recurrence and arrange the entire training data into sequences
-        max_sequence_length = 1
+        #states.fill_(float('inf'))
+        #next_states.fill_(float('inf'))
 
-        # The loss mask is used for masking the padding while computing the loss function.
-        samples["loss_mask"] = torch.ones((self.n_workers, self.worker_steps), dtype=torch.bool)
-
-        # Add collected recurrent cell states to the dictionary
-        # Add collected recurrent cell states to the dictionary
-        samples["mem_pot"] =  self.mem_pot
-        if self.neuron_type == "synaptic":
-            samples["mem_cur"] = self.mem_cur
-
-        # Split data into sequences and apply zero-padding
-        # Retrieve the indices of dones as these are the last step of a whole episode
-        episode_done_indices = []
-        for w in range(self.n_workers):
-            episode_done_indices.append(list(self.dones[w].nonzero()[0]))
-            # Append the index of the last element of a trajectory as well, as it "artifically" marks the end of an episode
-            if len(episode_done_indices[w]) == 0 or episode_done_indices[w][-1] != self.worker_steps - 1:
-                episode_done_indices[w].append(self.worker_steps - 1)
-
-        # Retrieve unpadded sequence indices
-        self.flat_sequence_indices = np.asarray(self._arange_sequences(
-                    np.arange(0, self.n_workers * self.worker_steps).reshape(
-                        (self.n_workers, self.worker_steps)), episode_done_indices)[0], dtype=object)
-        
-        # Split vis_obs, vec_obs, recurrent cell states and actions into episodes and then into sequences
-        for key, value in samples.items():
-            # Split data into episodes or sequences
-            sequences, max_sequence_length = self._arange_sequences(value, episode_done_indices)
-
-            # Apply zero-padding to ensure that each episode has the same length
-            # Therfore we can train batches of episodes in parallel instead of one episode at a time
-            for i, sequence in enumerate(sequences):
-                sequences[i] = self._pad_sequence(sequence, max_sequence_length)
-
-            # Stack sequences (target shape: (Sequence, Step, Data ...) & apply data to the samples dict
-            samples[key] = torch.stack(sequences, axis=0)
-
-            if (key == "mem_pot" or key == "mem_cur"):
-                # Select the very first recurrent cell state of a sequence and add it to the samples
-                samples[key] = samples[key][:, 0]
-
-        # Store important information
-        self.num_sequences = len(sequences)
-            
-        self.actual_sequence_length = max_sequence_length
-        
-        # Add remaining data samples
-        samples["values"] = self.values
-        samples["log_probs"] = self.log_probs
-        samples["advantages"] = self.advantages
-
-        # Flatten samples
-        self.samples_flat = {}
-        for key, value in samples.items():
-            if not key == "mem_pot" and not key == "mem_cur":
-                value = value.reshape(value.shape[0] * value.shape[1], *value.shape[2:])
-            self.samples_flat[key] = value
-
-    def _pad_sequence(self, sequence:np.ndarray, target_length:int) -> np.ndarray:
-        """Pads a sequence to the target length using zeros.
-
-        Arguments:
-            sequence {np.ndarray} -- The to be padded array (i.e. sequence)
-            target_length {int} -- The desired length of the sequence
-
-        Returns:
-            {torch.tensor} -- Returns the padded sequence
-        """
-        # Determine the number of zeros that have to be added to the sequence
-        delta_length = target_length - len(sequence)
-        # If the sequence is already as long as the target length, don't pad
-        if delta_length <= 0:
-            return sequence
-        # Construct array of zeros
-        if len(sequence.shape) > 1:
-            # Case: pad multi-dimensional array (e.g. visual observation)
-            padding = torch.zeros(((delta_length,) + sequence.shape[1:]), dtype=sequence.dtype)
+        if state.shape[0] > self.max_length \
+            or next_state.shape[0] > self.max_length \
+            or action.shape[0] > self.max_length\
+            or reward.shape[0] > self.max_length:
+            print(state, action, next_state, reward)
+            raise ValueError('Interaction length exceeds maximum length')
         else:
-            padding = torch.zeros(delta_length, dtype=sequence.dtype)
-        # Concatenate the zeros to the sequence
-        return torch.cat((sequence, padding), axis=0)
+            if self.padding == 'end':
+                states[:state.shape[0]] = state
+                actions[:action.shape[0]] = action
+                next_states[:next_state.shape[0]] = next_state
+                rewards[:reward.shape[0]] = reward
+                if self.keep_hidden_states:
+                    hidden_states[:hidden_state.shape[0]] = hidden_state
 
-    def _arange_sequences(self, data, episode_done_indices):
-        """Splits the povided data into episodes and then into sequences.
-        The split points are indicated by the envrinoments' done signals.
-        
-        Arguments:
-            data {torch.tensor} -- The to be split data arrange into num_worker, worker_steps
-            episode_done_indices {list} -- Nested list indicating the indices of done signals. Trajectory ends are treated as done
-            
-        Returns:
-            {list} -- Data arranged into sequences of variable length as list
-        """
-        sequences = []
-        max_length = 1
-        for w in range(self.n_workers):
-            start_index = 0
-            for done_index in episode_done_indices[w]:
-                # Split trajectory into episodes
-                episode = data[w, start_index:done_index + 1]
-                # Split episodes into sequences
-                if self.sequence_length > 0:
-                    for start in range(0, len(episode), self.sequence_length):
-                        end = start + self.sequence_length
-                        sequences.append(episode[start:end])
+            elif self.padding == 'start':
+                states[self.max_length - state.shape[0]:] = state
+                actions[self.max_length - state.shape[0]:] = action
+                next_states[self.max_length - state.shape[0]:] = next_state
+                rewards[self.max_length - state.shape[0]:] = reward
+            else:
+                raise ValueError('Padding must be either start or end')
+        if self.tbptt_length is not None:
+            for i in range(0, self.max_length, self.tbptt_length):
+                if torch.all(torch.all(states[i:] == 0, dim=0)==1):
+                # if torch.isinf(next_state_batch).all(dim=-1):
+                    break
+                if self.keep_hidden_states:
+                    self.memory.append(Transition_Spiking(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length], hidden_states[i:i+self.tbptt_length]))
                 else:
-                    # If the sequence length is not set to a proper value, sequences will be based on episodes
-                    sequences.append(episode)
-                max_length = len(episode) if len(episode) > max_length else max_length
-                start_index = done_index + 1
-        return sequences, max_length
+                    self.memory.append(Transition(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length]))
+        else:
+            if SPIKING:
+                self.memory.append(Transition_Spiking(states, actions, next_states, rewards, hidden_states))
+            else:
+                self.memory.append(Transition(states, actions, next_states, rewards))
 
-    def recurrent_mini_batch_generator(self) -> dict:
-        """A recurrent generator that returns a dictionary containing the data of a whole minibatch.
-        In comparison to the none-recurrent one, this generator maintains the sequences of the workers' experience trajectories.
-        
-        Yields:
-            {dict} -- Mini batch data for training
-        """
-        # Determine the number of sequences per mini batch
-        num_sequences_per_batch = self.num_sequences // self.n_mini_batches
-        num_sequences_per_batch = [num_sequences_per_batch] * self.n_mini_batches # Arrange a list that determines the sequence count for each mini batch
-        remainder = self.num_sequences % self.n_mini_batches
-        for i in range(remainder):
-            num_sequences_per_batch[i] += 1 # Add the remainder if the sequence count and the number of mini batches do not share a common divider
-        # Prepare indices, but only shuffle the sequence indices and not the entire batch to ensure that sequences are maintained as a whole.
-        indices = torch.arange(0, self.num_sequences * self.actual_sequence_length).reshape(self.num_sequences, self.actual_sequence_length)
-        sequence_indices = torch.randperm(self.num_sequences)
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
 
-        # Compose mini batches
-        start = 0
-        for num_sequences in num_sequences_per_batch:
-            end = start + num_sequences
-            mini_batch_padded_indices = indices[sequence_indices[start:end]].reshape(-1)
-            # Unpadded and flat indices are used to sample unpadded training data
-            mini_batch_unpadded_indices = self.flat_sequence_indices[sequence_indices[start:end].tolist()]
-            mini_batch_unpadded_indices = [item for sublist in mini_batch_unpadded_indices for item in sublist]
-            mini_batch = {}
-            for key, value in self.samples_flat.items():
-                if key == "hxs" or key == "cxs":
-                    # Select recurrent cell states of sequence starts
-                    mini_batch[key] = value[sequence_indices[start:end]].to(self.device)
-                elif key == "log_probs" or "advantages" in key or key == "values":
-                    # Select unpadded data
-                    mini_batch[key] = value[mini_batch_unpadded_indices].to(self.device)
-                else:
-                    # Select padded data
-                    mini_batch[key] = value[mini_batch_padded_indices].to(self.device)
-            start = end
-            yield mini_batch
-            
-    def calc_advantages(self, last_value:torch.tensor, gamma:float, lamda:float) -> None:
-        """Generalized advantage estimation (GAE)
+    def __len__(self):
+        return len(self.memory)
 
-        Arguments:
-            last_value {torch.tensor} -- Value of the last agent's state
-            gamma {float} -- Discount factor
-            lamda {float} -- GAE regularization parameter
-        """
-        with torch.no_grad():
-            last_advantage = 0
-            mask = torch.tensor(self.dones).logical_not() # mask values on terminal states
-            rewards = torch.tensor(self.rewards)
-            for t in reversed(range(self.worker_steps)):
-                last_value = last_value * mask[:, t]
-                last_advantage = last_advantage * mask[:, t]
-                delta = rewards[:, t] + gamma * last_value - self.values[:, t]
-                last_advantage = delta + gamma * lamda * last_advantage
-                self.advantages[:, t] = last_advantage
-                last_value = self.values[:, t]

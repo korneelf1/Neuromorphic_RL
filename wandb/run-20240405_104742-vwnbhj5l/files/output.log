@@ -1,0 +1,8 @@
+mps
+Starting training at time: 1712306864.4585521
+Traceback (most recent call last):
+  File "/Users/korneel/coding/A3C/DSQN/DSQN.py", line 623, in <module>
+    optimized = optimize_model()
+  File "/Users/korneel/coding/A3C/DSQN/DSQN.py", line 470, in optimize_model
+    state_action_values[row, col+1:] = 0
+KeyboardInterrupt
