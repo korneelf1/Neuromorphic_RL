@@ -41,10 +41,13 @@ class DQN(nn.Module):
         return torch.stack(values, dim=1)
         
 class DSQN(nn.Module):
-    def __init__(self, n_observations, n_actions, bias=True, BATCH_SIZE=1, device='cpu'):
+    def __init__(self, n_observations, n_actions, bias=True, BATCH_SIZE=1, device='cpu', dropout= 0.0):
         '''
         Output is population coded with linear layer to actions'''
         super(DSQN, self).__init__()
+
+        self.drop = nn.Dropout(dropout)
+
         spike_fn = surrogate.fast_sigmoid()
 
         self.layer1 = nn.Linear(n_observations, 128, bias=bias)
@@ -78,8 +81,10 @@ class DSQN(nn.Module):
         og_mem1 = self.mem1
         og_mem2 = self.mem2
         spk1, self.mem1 = self.lif1(x,self.mem1)
+        spk1 = self.drop(spk1)
         x = self.layer2(spk1)
         spk2, self.mem2 = self.lif2(x,self.mem2)
+        spk2 = self.drop(spk2)
         x = self.layer3(spk2)
         # torch.cat([self.mem1,self.mem2], dim=1)
         return x, torch.cat([og_mem1,og_mem2], dim=1).squeeze(0)
@@ -99,8 +104,10 @@ class DSQN(nn.Module):
         # x = F.relu(self.layer1(x))
             x = self.layer1(state_batch[:,i,:])
             spk1, self.mem1 = self.lif1(x,self.mem1)
+            spk1 = self.drop(spk1)
             x = self.layer2(spk1)
             spk2, self.mem2 = self.lif2(x,self.mem2)
+            spk2 = self.drop(spk2)
             x = self.layer3(spk2)
             values.append(x)
         # return x
