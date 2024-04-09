@@ -97,7 +97,7 @@ random.seed(seed)
 torch.manual_seed(seed)
 # env.seed(seed)
 np.random.seed(seed)
-env.action_space.seed(seed)
+env.action_space.seed(14)
 ######################################################################
 # Replay Memory
 # -------------
@@ -258,7 +258,7 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 12
+BATCH_SIZE = 128
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05

@@ -24,7 +24,7 @@ DEBUG = False
 # start timing
 t0 = time.time()
 
-BATCH_SIZE = 12 # number of transitions sampled from the replay buffer
+BATCH_SIZE = 128 # number of transitions sampled from the replay buffer
 GAMMA = 0.99 # discount factor as mentioned in the previous section
 EPS_START = 0.9 # starting value of epsilon
 EPS_END = 0.05 # final value of epsilon
@@ -32,14 +32,16 @@ EPS_DECAY = 1000 # controls the rate of exponential decay of epsilon, higher mea
 TAU = 0.005 # update rate of the target network
 LR = 1e-4 # learning rate of the ``AdamW`` optimizer
 INTERACTION_MAX_LENGTH = 500 # maximum length of an interaction
-TBPTT_LENGTH = int(2) # truncated backpropagation through time length
+TBPTT_LENGTH = int(10) # truncated backpropagation through time length
 PADDING_MODE = 'end' # padding mode for the replay buffer
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
 SPIKING = True # use spiking or non-spiking network
-PLOTTING = 'local' # local or wandb or none
-ITERATIONS = int(1e3) # number of training iterations (corresponding to collections of rollouts)
+PLOTTING = 'wandb' # local or wandb or none
+ITERATIONS = int(5e3) # number of training iterations (corresponding to collections of rollouts)
 WARMUP = 0 # first warmup steps where no optimization is performeds
+DROPOUT = 0.20 # dropout rate for the spiking network
 seed = 7
+SWEEP = False
 
 # set random seeds for reproducibility
 random.seed(seed)
@@ -48,8 +50,37 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 
 if PLOTTING=='wandb':
-    # set up wandb
-    wandb.init(project='cartpole', config={'algorithm': 'DSQN', 
+    wandb.login()
+    if SWEEP:
+        wandb.init(project='cartpole')
+        # set up wandb sweep
+        sweep_config = {
+            'method': 'random'
+            }
+
+        parameters_dict = {
+            'optimizer': {
+                'values': ['adam', 'sgd']
+                },
+            'DROPOUT': {
+                'values': [0.0, 0.2, 0.4]
+                },
+            'TBPTT_LENGTH': {
+                'values': [int(1), int(10), int(50), int(500)]},
+            'TAU': {
+                'values': [0.001, 0.005, 0.01, 0.05]},
+            'LR': {
+                'values': [1e-3, 1e-4, 1e-5]},
+            
+            }
+
+        sweep_config['parameters'] = parameters_dict
+
+        sweep_id = wandb.sweep(sweep_config,project='cartpole')
+    
+    else:
+        # set up wandb
+        wandb.init(project='cartpole', config={'algorithm': 'DSQN', 
                                            'SPIKING': SPIKING,
                                            'BATCH_SIZE':BATCH_SIZE,
                                            'TBPTT_LENGTH': TBPTT_LENGTH,
@@ -63,8 +94,8 @@ if PLOTTING=='wandb':
                                            'GRADIENT_FREQ': GRADIENT_FREQ,
                                            'INTERACTION_MAX_LENGTH': INTERACTION_MAX_LENGTH,
                                            'seed': seed,})
-    
 
+    
 env = gym.make("CartPole-v1")
 env.action_space.seed(14)
 
@@ -126,14 +157,15 @@ state, info = env.reset(seed=seed)
 n_observations = len(state)
 
 if SPIKING:
-    policy_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE).to(device)
-    target_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE).to(device)
+    policy_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE, dropout=DROPOUT).to(device)
+    target_net = DSQN(n_observations, n_actions,device=device,BATCH_SIZE=BATCH_SIZE, dropout=DROPOUT).to(device)
 else:
     policy_net = DQN(n_observations, n_actions).to(device)
     target_net = DQN(n_observations, n_actions).to(device)
 
 target_net.load_state_dict(policy_net.state_dict())
-if PLOTTING=='wandb':
+
+if PLOTTING=='wandb' and not SWEEP:
     wandb.watch(policy_net)
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory_Full_Seq(10000, padding=PADDING_MODE, interaction_max_length=INTERACTION_MAX_LENGTH, tbptt_length=TBPTT_LENGTH, keep_hidden_states=SPIKING)
@@ -422,8 +454,7 @@ if torch.cuda.is_available() or torch.backends.mps.is_available():
 else:
     num_episodes = 5
 
-
-for i_episode in range(num_episodes):
+def train(num_episodes):
     # collect a rollout
     time_episode = collect_rollout(env, memory, device,spiking=SPIKING)
     if PLOTTING=='local':
@@ -451,6 +482,9 @@ for i_episode in range(num_episodes):
                 target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
             target_net.load_state_dict(target_net_state_dict)
 
+for i in range(num_episodes):
+    train(i)
+
 print('NR_OPTIMIZATIONS:', NR_OPTIMIZATIONS)
 
 print('Complete, duration:', time.time()-t0)
@@ -461,3 +495,5 @@ if PLOTTING=='local':
 elif PLOTTING=='wandb':
     wandb.log({'NR_OPTIMIZATIONS': NR_OPTIMIZATIONS})
     wandb.finish()
+
+# wandb.agent(sweep_id, train, count=600)
