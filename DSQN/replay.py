@@ -109,7 +109,7 @@ class ReplayMemory_Full_Seq(object):
                 else:
                     self.memory.append(Transition(states[i:i+self.tbptt_length], actions[i:i+self.tbptt_length], next_states[i:i+self.tbptt_length], rewards[i:i+self.tbptt_length]))
         else:
-            if SPIKING:
+            if self.keep_hidden_states:
                 self.memory.append(Transition_Spiking(states, actions, next_states, rewards, hidden_states))
             else:
                 self.memory.append(Transition(states, actions, next_states, rewards))
