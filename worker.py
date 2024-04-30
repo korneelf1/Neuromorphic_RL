@@ -14,7 +14,7 @@ from collections import namedtuple, deque
 
 import gym
 from tqdm import tqdm
-from CartPole_modified import CartPole_fake
+# from CartPole_modified import CartPole_fake
 from environments import SimpleDrone_Discrete
 # import actor-critics
 from actor_critics import ActorCriticSNN_LIF_Small, ActorCritic_ANN,ActorCriticSNN_LIF_Smallest, ActorCritic_ANN_Smallest, ActorCritic_ANN_Cont, ActorCriticSNN_LIF_Smallest_Cont,ActorCriticSNN_LIF_drone
@@ -131,7 +131,7 @@ class MasterModel(mp.Process):
     def run(self):
         EVALUATION_INTERVAL = 500
         nr_threads = mp.cpu_count()
-        nr_threads = 1
+        nr_threads = 4
         print('\nCreating workers...')
         self.workers = [Worker(global_model=self.global_model, global_counter=self.global_episode, game_name=self.game_name,
                         idx=i, nr_workers=nr_threads, **self.args) for i in range(nr_threads)]

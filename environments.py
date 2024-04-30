@@ -6,7 +6,7 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import time
-from gym.utils import play
+# from gym.utils import play
 from matplotlib import cm
 
 import gymnasium
@@ -231,10 +231,11 @@ class SimpleGrid():
     
 
 class SimpleDrone(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.1, dt = 0.01):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.1, dt = 0.01, optic_flow = False):
         self.mass = mass
         self.g = 9.81
         self.dt = dt
+        self.optic_flow = optic_flow
 
         self._agent_location = 5
         self._agent_velocity = 0
@@ -268,8 +269,12 @@ class SimpleDrone(gym.Env):
     def _get_obs(self):
         # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
         # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
-        obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1)
-        return torch.tensor(obs)
+        if self.optic_flow:
+            input_to_net = torch.tensor([self._agent_velocity/self._agent_location], dtype=torch.float32).reshape(1,)
+        else:
+            input_to_net = torch.tensor([self._agent_location]).reshape(1,)
+        obs = torch.tensor([input_to_net, self._agent_velocity]).reshape(2,1)
+        # return torch.tensor(obs)
     
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
@@ -390,7 +395,9 @@ class SimpleDrone(gym.Env):
         pass
 
 class SimpleDrone_Discrete(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False, optic_flow=False):
+        """
+        optic_flow if true return optic flow else height"""
         self.mass = mass
         self.g = 9.81
         self.dt = dt
@@ -424,13 +431,16 @@ class SimpleDrone_Discrete(gym.Env):
         self.done = False
         self.prev_shaping = None
         
-        
+        self.optic_flow = optic_flow
 
     def _get_obs(self):
         # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
         # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
         # obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1).squeeze()
-        obs = torch.tensor([self._agent_location]).reshape(1,)
+        if self.optic_flow:
+            obs = torch.tensor([self._agent_velocity/self._agent_location], dtype=torch.float32).reshape(1,)
+        else:
+            obs = torch.tensor([self._agent_location]).reshape(1,)
         vel = torch.tensor([self._agent_velocity], dtype=torch.float32).reshape(1,)
         # obs = np.array([self._agent_location]).reshape(1,)
         if self.train_vel:
@@ -545,6 +555,8 @@ class SimpleDrone_Discrete(gym.Env):
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
         self._agent_location = np.random.randint(5,20)*.1
+        if self.train_vel:
+            self._agent_velocity = np.random.randint(20,50)*.1
         # self._agent_location = 2
         # self._agent_velocity = np.random.randint(-5,5)*.1
         self._agent_velocity = np.random.randint(-3,3)*.1
@@ -573,6 +585,9 @@ class SimpleDrone_Discrete(gym.Env):
 
     def step(self, action):
         '''Instead of learning total thrust, learn delta thrust wrt hover'''
+        if self.train_vel:
+            self.done = False
+        
         if self.done:
             return self._get_obs(), self.reward, True, True, {}
         terminal = False
@@ -580,7 +595,6 @@ class SimpleDrone_Discrete(gym.Env):
         self.thrust_last = action
 
         acceleration = self.action_to_acc(action) # learn wrt hover or wrt zero acc
-        print(acceleration)
         self.accelerations.append(acceleration)
         acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-10:-1])  if len(self.accelerations)>10 else acceleration
 
@@ -639,7 +653,8 @@ class SimpleDrone_Discrete(gym.Env):
             terminal = True
             truncated = True
             # self.reward -= -200
-        
+        if self.train_vel:
+            terminal, truncated = (False,False)
         return self._get_obs(), self.reward, terminal, truncated, info
         
 
@@ -713,9 +728,10 @@ class LunarLander1D(gym.Env):
     return np.array([self.state])
 
 
-from stable_baselines3 import A2C, PPO
-from stable_baselines3.common.env_util import make_vec_env
+
 if __name__ == "__main__":
+    from stable_baselines3 import A2C, PPO
+    from stable_baselines3.common.env_util import make_vec_env
     env = LunarLander1D(mass=0.5) 
     gym.register("SimpleDroneDiscrete-v0", entry_point=SimpleDrone_Discrete) 
     # # gym.register("SimpleDrone-v0", entry_point=SimpleDrone) 

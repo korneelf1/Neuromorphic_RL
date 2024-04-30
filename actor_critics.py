@@ -521,7 +521,6 @@ class ActorCriticSNN_LIF_drone(torch.nn.Module):
         self.mem_val = torch.clamp(self.mem_val, 0, 1)
 
     def forward(self, inputs, nr_passes = 1):
-        
         for i in range(self.nr_passes):
             # inputs = torch.tensor(inputs).to(torch.float32)
             inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)

@@ -1,7 +1,7 @@
 import threading 
 import torch.multiprocessing as mp
 from worker import MasterModel
-from worker_continuous import MasterModel_continuous
+# from worker_continuous import MasterModel_continuous
 import matplotlib.pyplot as plt
 
 import torch
@@ -32,7 +32,7 @@ def main():
         global_model = MasterModel_continuous(**args)
     else:
         global_model = MasterModel(**args)
-        global_model.global_model.load_state_dict(torch.load('drone_snn_pos_45_success.pt'))
+        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_syn_lif_1e4_3232.pt'))
           
 
     global_model.start()
