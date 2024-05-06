@@ -7,7 +7,7 @@ from collections import namedtuple, deque
 from itertools import count
 # from ..CartPole_modified import CartPole_fake
 from environments import SimpleDrone_Discrete
-from actor_critics import ActorCriticSNN_LIF_drone
+from actor_critics import ActorCriticSNN_LIF_drone_DSQN
 
 import torch
 import torch.nn as nn
@@ -36,8 +36,8 @@ INTERACTION_MAX_LENGTH = 500
 TBPTT_LENGTH = 1
 PADDING_MODE = 'end'
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
-SPIKING = False
-PLOTTING = 'wandb' # local or wandb or none
+SPIKING = True
+PLOTTING = 'none' # local or wandb or none
 ITERATIONS = int(1e3)
 
 if PLOTTING=='wandb':
@@ -294,9 +294,9 @@ state, info = env.reset(seed=seed)
 n_observations = len(state)
 
 if SPIKING:
-    policy_net = ActorCriticSNN_LIF_drone(n_observations, n_actions,32,32,torch.tensor([0],device=device), torch.tensor([2.5], device=device)).to(device)
-    policy_net.load_state_dict(torch.load('drone_snn_vel_syn_lif_1e4_3232.pt'))
-    target_net = ActorCriticSNN_LIF_drone(n_observations, n_actions,32,32,torch.tensor([0],device=device), torch.tensor([2.5], device=device)).to(device)
+    policy_net = ActorCriticSNN_LIF_drone_DSQN(n_observations, env.action_space,32,32,torch.tensor([0],device=device), torch.tensor([2.5], device=device)).to(device)
+    policy_net.load_state_dict(torch.load('DSQN\drone_snn_vel_syn_lif_1e4_3232.pt'))
+    target_net = ActorCriticSNN_LIF_drone_DSQN(n_observations, env.action_space,32,32,torch.tensor([0],device=device), torch.tensor([2.5], device=device)).to(device)
 else:
     policy_net = DQN(n_observations, n_actions).to(device)
     target_net = DQN(n_observations, n_actions).to(device)
@@ -323,9 +323,9 @@ def select_action(state, spiking=False):
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             if spiking:
-                return policy_net.step_forward(state.unsqueeze(0))[0].squeeze(0).max(1).indices.view(1, 1)
+                return policy_net.step_forward(state.unsqueeze(0)).max(0).indices.view(1, 1)
             else:
-                return policy_net(state.unsqueeze(0))[0].squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
+                return policy_net(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
@@ -400,7 +400,7 @@ def optimize_model():
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch)[0].gather(2, action_batch.to(torch.int64)).squeeze(2)
+    state_action_values = policy_net(state_batch).gather(2, action_batch.to(torch.int64)).squeeze(2)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -411,7 +411,7 @@ def optimize_model():
     # for i in range(indices.shape[0]):
     #     next_state_batch[indices[i]] = 0
     with torch.no_grad():
-        next_state_values = target_net(next_state_batch)[0].max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
+        next_state_values = target_net(next_state_batch).max(2).values #strange that we take the max, cause this max is not necessarily the value of the action taken, which is used for the action-state values
     next_state_values[indices[:,0], indices[:,1]] = 0
     # placeholders for targets and predictions which are padded with zeros rather then the biased outputs
     policy_placeholder = torch.zeros_like(state_action_values,device=device)
@@ -486,7 +486,7 @@ def collect_rollout(env, memory, device=device, spiking=False):
         # print(action)
 
         observation, reward, terminated, truncated, _ = env.step(action.item())
-        reward = torch.tensor([reward], device=device)
+        reward = torch.tensor([reward], device=device,dtype=torch.float32)
         done = terminated or truncated
 
         if terminated:
