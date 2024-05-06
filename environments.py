@@ -395,7 +395,7 @@ class SimpleDrone(gym.Env):
         pass
 
 class SimpleDrone_Discrete(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False, optic_flow=False):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.02, max_episode_length = 200, train_vel = False, optic_flow=False):
         """
         optic_flow if true return optic flow else height"""
         self.mass = mass
@@ -414,7 +414,7 @@ class SimpleDrone_Discrete(gym.Env):
 
         self.action_space = gym.spaces.Discrete(7)
         # self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
-        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.2]]), shape=(1,1))
+        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.5]]), shape=(1,1))
         self.train_vel = train_vel
 
         self.max_thrust = 5
