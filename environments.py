@@ -184,6 +184,296 @@ class GridWorldEnv(gym.Env):
 class Discret():
     def __init__(self,val) -> None:
         self.n = val
+
+
+class SimpleDrone_Discrete(gym.Env):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False, optic_flow=False):
+        """
+        optic_flow if true return optic flow else height"""
+        self.mass = mass
+        self.g = 9.81
+        self.dt = dt
+        self.max_episode_length = max_episode_length
+
+        self._agent_location = 5
+        self._agent_velocity = 0
+
+        self._target_location = 0
+        self._target_velocity = 0
+
+        self.reward = 0 # -height for each timestep -100 for crash + 250 for landing under 0.1m/s
+        self.landing_velocity = -landing_velocity
+
+        self.action_space = gym.spaces.Discrete(7)
+        # self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
+        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.2]]), shape=(1,1))
+        self.train_vel = train_vel
+
+        self.max_thrust = 5
+        self.max_acc = 1
+        self.accelerations_actions = np.linspace(-self.max_acc,self.max_acc,7)
+        self.trajectory = []
+        self.thrust = []
+        self.times = []
+        self.velocities = []
+        self.accelerations = []
+        self.counter = 0
+        self.render_mode = render_mode
+
+        self.done = False
+        self.prev_shaping = None
+        
+        self.optic_flow = optic_flow
+
+    def _get_obs(self):
+        # return {"agent": [self._agent_location, self._agent_velocity], "target": self._target_location}
+        # [self._agent_location, self._agent_velocity], [self._target_location, self._target_velocity]
+        # obs = np.array([self._agent_location, self._agent_velocity]).reshape(2,1).squeeze()
+        if self.optic_flow:
+            obs = torch.tensor([self._agent_velocity/self._agent_location], dtype=torch.float32).reshape(1,)
+        else:
+            obs = torch.tensor([self._agent_location]).reshape(1,)
+        vel = torch.tensor([self._agent_velocity], dtype=torch.float32).reshape(1,)
+        # obs = np.array([self._agent_location]).reshape(1,)
+        if self.train_vel:
+            return obs, vel
+        else:
+            return np.array([self._agent_location]).reshape(1,)
+    
+
+
+
+    def reward_function_snn(self,z, vz,thrust, done, normalized=False):
+        touch_ground = False
+        if abs(z)<0.1:
+            touch_ground = True
+        
+        reward = 100
+        if z>-.1:
+            # reward += 100/(1+abs(z))
+            reward -= z*100
+        
+        if vz<0:
+            distance_from_target_factor = (2.5-z)/2.5
+            # reward += 50*np.exp(-abs(vz)*5)
+
+            reward += (vz*200)*distance_from_target_factor + (1-distance_from_target_factor)*200*-vz
+        else:
+            # reward -= 100*np.exp(abs(vz)*5e-1) # factor 100 so 0 reward if upward speed at height 0
+            reward -= (vz+1) *100
+
+        if z < -.1:
+            reward = 0 
+        
+        # landing
+        if touch_ground and 0 > (vz) > -self.landing_velocity:
+            reward += 100
+            print('Landed')
+            # print(reward)
+        return reward
+
+        
+
+    def reward_function(self,z, vz,thrust, done, normalized=False):
+        touch_ground = False
+        if abs(z)<0.1:
+            touch_ground = True
+        state = [z, vz, touch_ground]
+
+        reward = -1
+        if vz<0:
+            reward += 5
+
+        
+        shaping = (
+            -200 * np.abs(state[0])
+            - 100 * np.abs(state[1])
+            + 20 * state[2]
+        )  # And ten points for legs contact, the idea is if you
+        # lose contact again after landing, you get negative reward
+        if self.prev_shaping is not None:
+            reward = shaping - self.prev_shaping
+        self.prev_shaping = shaping
+
+        reward -= 1 # we want fast landing
+        # reward += -state[1]*10
+        terminated = False
+        crash = False
+        if touch_ground and abs(vz) > self.landing_velocity:
+            crash = True
+
+        if abs(state[0]) >= 2.2:
+            terminated = True
+            reward -= 400
+            # reward -= abs((state[1])*25)
+        # elif touch_ground and abs(vz) < self.landing_velocity:
+        elif touch_ground:
+            terminated = True
+            # bonus for soft landing
+            reward += abs((1/(state[1]+1e-3)*100))
+            # print(reward,(1/(state[1]+1e-3)*25))
+        if self.counter>= self.max_episode_length-1:
+            terminated = True
+            reward -= 200
+        return reward
+    
+    def plot_reward_function(self):
+        # Define the range of z and vz values
+        z_values = np.linspace(0, 2.5, 100)
+        vz_values = np.linspace(-1, 1, 100)
+
+        # Create a grid of z and vz values
+        Z, VZ = np.meshgrid(z_values, vz_values)
+
+        # Calculate the reward for each combination of z and vz
+        reward = np.zeros_like(Z)
+        for i in range(len(z_values)):
+            for j in range(len(vz_values)):
+                reward[i, j] = self.reward_function_snn(Z[i, j], VZ[i, j], 0, False)
+
+        # Create a surface plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(Z, VZ, reward, cmap=cm.coolwarm)
+
+        # Set labels and title
+        ax.set_xlabel('z')
+        ax.set_ylabel('vz')
+        ax.set_zlabel('Reward')
+        ax.set_title('Reward Function (SNN)')
+
+        # Show the plot
+        plt.show()
+    def reset(self, seed=None, options=None):
+        # self._agent_location = np.random.randint(2,10)
+        self._agent_location = np.random.randint(5,20)*.1
+        if self.train_vel:
+            self._agent_velocity = np.random.randint(20,50)*.1
+        # self._agent_location = 2
+        # self._agent_velocity = np.random.randint(-5,5)*.1
+        self._agent_velocity = np.random.randint(-3,3)*.1
+        # self._agent_velocity = 0
+        self.reward = 0
+
+        self.mass = 0.5 + (np.random.rand()-0.5)*0.01
+        self.trajectory = []
+        self.times = []
+        self.thrust = []
+        self.velocities = []
+        self.accelerations = []
+        self.counter = 0
+        self.thrust_last = 0
+        self.done = False
+
+        
+        return self._get_obs(),{}
+    
+
+    def action_to_acc(self, action, hover = True):
+        '''Converts discrete action to thrust value'''
+        
+        return self.accelerations_actions[action]
+
+
+    def step(self, action):
+        '''Instead of learning total thrust, learn delta thrust wrt hover'''
+        if self.train_vel:
+            self.done = False
+        
+        if self.done:
+            return self._get_obs(), self.reward, True, True, {}
+        terminal = False
+        truncated = False
+        self.thrust_last = action
+
+        acceleration = self.action_to_acc(action) # learn wrt hover or wrt zero acc
+        self.accelerations.append(acceleration)
+        acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-10:-1])  if len(self.accelerations)>10 else acceleration
+
+        self._agent_velocity += acceleration_low_passed*self.dt
+
+        self._agent_location += self._agent_velocity*self.dt
+
+        info = {}
+
+        info['landed'] = False
+        info['end_condition'] = 'none'
+        self.reward = self.reward_function_snn(self._agent_location, self._agent_velocity, action, terminal)
+        if np.abs(self._agent_location) > 2.2:
+            terminal = True
+            truncated = True
+            info['landed'] = False
+            # self.reward -= 50
+            # print('Too High')
+
+            # Calculate shaped rewards
+        elif self._agent_location<0.1:
+            self.done = True
+
+            if np.abs(self._agent_velocity) < self.landing_velocity:
+                terminal = True
+                truncated = True
+                # self.reward +=100
+                info['landed'] = True
+                info['end_condition'] = 'landed'
+                print('Landed!\nResults: ', self._agent_location, self._agent_velocity)
+
+            else:
+                terminal = True
+                truncated = True
+                # print('Crash')
+                info['end_condition'] = 'crash'
+                info['landed'] = False
+        elif self._agent_location<0:
+            terminal = True
+            truncated = True
+            info['end_condition'] = 'too low'
+        
+        elif self._agent_location>2.2:
+            terminal = True
+            truncated = True    
+            info['end_condition'] = 'too high'
+
+        self.counter +=1
+        self.times.append(self.counter)
+        self.trajectory.append(self._agent_location)
+        self.velocities.append(self._agent_velocity)
+        self.thrust.append(action)
+        info['distance'] = self._agent_location
+        
+        if self.counter>= self.max_episode_length-1:
+            terminal = True
+            truncated = True
+            # self.reward -= -200
+        if self.train_vel:
+            terminal, truncated = (False,False)
+        return self._get_obs(), self.reward, terminal, truncated, info
+        
+
+    def render(self, mode='post'):
+        # Set up the legend
+        self.ax.legend(loc='upper right')
+        # self.add_data_point(self.counter, self._agent_location, self._agent_velocity, self.thrust_last)
+        if mode == 'post':
+            plt.figure()
+            plt.plot(self.times, self.trajectory)
+            plt.plot(self.times, self.velocities)
+            plt.plot(self.times, self.thrust)
+            plt.show()
+                
+
+
+    def add_data_point(self, time, trajectory, velocities, thrust):
+        self.times.append(time)
+        self.trajectory.append(trajectory)
+        self.velocities.append(velocities)
+        self.thrust.append(thrust)
+            
+
+    def close(self):
+        pass
+
+
 class SimpleGrid():
 
     def __init__(self, size = 3, start_loc = [0,0], target = [2,2]):
