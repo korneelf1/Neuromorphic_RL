@@ -675,7 +675,8 @@ class ActorCriticSNN_LIF_drone_DSQN(torch.nn.Module):
         self.init_mem()
 
         values = []
-        for inputs in range(batch.shape[1]):
+        for j in range(batch.shape[1]):
+            inputs = batch[:,j,:]
             for i in range(self.nr_passes):
                 # inputs = torch.tensor(inputs).to(torch.float32)
                 inputs = (inputs - self.inp_min)/(self.inp_max - self.inp_min)
@@ -692,7 +693,7 @@ class ActorCriticSNN_LIF_drone_DSQN(torch.nn.Module):
             actions =  self.actor_linear(spk2)
             _, self.mem_act = self.action_lif(actions, self.mem_act)
             
-            values.append(self.mem_act.reshape((1,-1)))
+            values.append(self.mem_act)
 
         # add information for plotting purposes
         self.spk_in_rec.append(spk1.squeeze(0).detach())  # Record the output trace of spikes

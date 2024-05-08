@@ -320,7 +320,7 @@ def select_action(state, spiking=False):
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             if spiking:
-                return policy_net.step_forward(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1)
+                return policy_net.step_forward(state.unsqueeze(0)).max(1).indices.view(1, 1)
             else:
                 return policy_net(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
     else:

@@ -33,12 +33,12 @@ EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 INTERACTION_MAX_LENGTH = 500
-TBPTT_LENGTH = 1
+TBPTT_LENGTH = 10
 PADDING_MODE = 'end'
 GRADIENT_FREQ = 50   # frequency of gradient updates per rollout interaction
 SPIKING = True
-PLOTTING = 'none' # local or wandb or none
-ITERATIONS = int(1e3)
+PLOTTING = 'wandb' # local or wandb or none
+ITERATIONS = int(3e3)
 
 if PLOTTING=='wandb':
     # set up wandb
@@ -323,7 +323,7 @@ def select_action(state, spiking=False):
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             if spiking:
-                return policy_net.step_forward(state.unsqueeze(0)).max(0).indices.view(1, 1)
+                return policy_net.step_forward(state.unsqueeze(0)).max(1).indices.view(1, 1)
             else:
                 return policy_net(state.unsqueeze(0)).squeeze(0).max(1).indices.view(1, 1) # unsqueeze to get batch size of 1
     else:
@@ -525,6 +525,7 @@ def collect_rollout(env, memory, device=device, spiking=False):
                 plot_durations()
             elif PLOTTING=='wandb':
                 wandb.log({'episode_duration': t+1})
+                wandb.log({'Reward':rewards[-1]})
             break
 
 
