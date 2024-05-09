@@ -1,4 +1,4 @@
-from actor_critics import  ActorCriticSNN_LIF_drone, ActorCriticSNN_LIF_SYN_drone, ActorCriticSNN_SYN_LIF_drone
+from actor_critics import  ActorCriticSNN_LIF_drone, ActorCriticSNN_LIF_SYN_drone, ActorCriticSNN_SYN_LIF_drone, ActorCriticSNN_LIF_withbuffer
 from environments import SimpleDrone_Discrete
 
 import torch
@@ -20,8 +20,11 @@ action_size = env.action_space
 device =  torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 # device = 'cpu'
 model = ActorCriticSNN_LIF_drone(state_size, action_size, hidden1=32, hidden2=32, inp_min=torch.tensor([0], device=device),inp_max=torch.tensor([2.5], device=device)).to(device)
+model = ActorCriticSNN_LIF_withbuffer(state_size, action_size, hidden1=32, hidden2=32, inp_min=torch.tensor([0], device=device),inp_max=torch.tensor([2.5], device=device), device=device).to(device)
 # model = ActorCriticSNN_LIF_SYN_drone(state_size, action_size).to(device)
 # model = ActorCriticSNN_SYN_LIF_drone(state_size, action_size).to(device)
+
+  
 print('I am learning actions or something i think, velocity is not smooth at all...')
 loss_hist = []
 
@@ -144,7 +147,7 @@ if GATHER_DATA:
         print(avg_batch_loss)
     # scheduler.step() # update learning rate
 
-torch.save(model.state_dict(), 'drone_snn_vel_syn_lif_1e4_3232.pt')
+torch.save(model.state_dict(), 'drone_snn_vel_syn_lif_1e4_3232_with_buffer.pt')
 
 
 
