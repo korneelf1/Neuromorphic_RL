@@ -12,10 +12,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
-# from stable_baselines3.common.buffers import ReplayBuffer
-from buffer_spiking import ReplayBuffer_Spiking as ReplayBuffer
+from stable_baselines3.common.buffers import ReplayBuffer
+from buffer_spiking import ReplayBuffer_Spiking
 from torch.utils.tensorboard import SummaryWriter
 
+import snntorch as snn
+from collections import deque
 
 @dataclass
 class Args:
@@ -29,7 +31,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "Spiking SAC"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -39,6 +41,8 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "Hopper-v4"
     """the environment id of the task"""
+    spiking: bool = True
+    """is the actor spiking or not"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
     buffer_size: int = int(1e6)
@@ -141,12 +145,38 @@ class Actor(nn.Module):
         return action, log_prob, mean
 
 class SpikingActor(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, neuron_type='lif'):
+        '''Spiking actor class, adhering to same architecture as ANN actor, with spiking neurons.
+        It is probably smart to increase number of neurons in hidden layers (you could kinda see 256 neurons as 8 32bit registers)
+        Args:
+            env: environment that the actor will interact with
+            neuron_type: "lif" or "synaptic" for first or second order model respectively
+        '''
         super().__init__()
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+
+        hidden = 256
+
+        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), hidden)
+        if neuron_type == 'synaptic':
+            raise NotImplementedError
+
+        beta_hidden = torch.rand(hidden)
+        thr_hidden = torch.rand(hidden)
+        self.lif1 = snn.Leaky(beta=beta_hidden, threshold=thr_hidden, learn_beta=True, learn_threshold=True)
+
+        self.fc2 = nn.Linear(hidden, hidden)
+        beta_hidden = torch.rand(hidden)
+        thr_hidden = torch.rand(hidden)
+        self.lif2 = snn.Leaky(beta=beta_hidden, threshold=thr_hidden, learn_beta=True, learn_threshold=True)
+
+        out_shape = np.prod(env.single_action_space.shape)
+        self.fc_mean = nn.Linear(256, out_shape)
+        self.fc_logstd = nn.Linear(256, out_shape)
+        beta_hidden = torch.rand(out_shape)
+        thr_hidden = torch.rand(out_shape)
+        self.lif_mean = snn.Leaky(beta=beta_hidden, threshold=thr_hidden, learn_beta=True, learn_threshold=True)
+        self.lif_logstd = snn.Leaky(beta=beta_hidden, threshold=thr_hidden, learn_beta=True, learn_threshold=True)
+
         # action rescaling
         self.register_buffer(
             "action_scale", torch.tensor((env.action_space.high - env.action_space.low) / 2.0, dtype=torch.float32)
@@ -155,10 +185,23 @@ class SpikingActor(nn.Module):
             "action_bias", torch.tensor((env.action_space.high + env.action_space.low) / 2.0, dtype=torch.float32)
         )
 
+        # initialize the neurons
+        self.reset()
+
+    def reset(self):
+        '''Reset all hidden states of the neuron models.'''
+        self.mem1 = self.lif1.init_leaky()
+        self.mem2 = self.lif2.init_leaky()
+
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.fc1(x)
+        x, self.mem1 = self.lif1(x, self.mem1)
+        x = self.fc2(x)
+        x, self.mem2 = self.lif2(x, self.mem2)
+
         mean = self.fc_mean(x)
+        _, self.mem_mean = self.lif_mean(x, self.mem_mean)
+
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
@@ -223,7 +266,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs).to(device)
+    if args.spiking:
+        actor = SpikingActor(envs).to(device)
+    else:
+        actor = Actor(envs).to(device)
+
     qf1 = SoftQNetwork(envs).to(device)
     qf2 = SoftQNetwork(envs).to(device)
     qf1_target = SoftQNetwork(envs).to(device)
@@ -243,17 +290,34 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         alpha = args.alpha
 
     envs.single_observation_space.dtype = np.float32
-    rb = ReplayBuffer(
-        args.buffer_size,
-        envs.single_observation_space,
-        envs.single_action_space,
-        device,
-        handle_timeout_termination=False,
-    )
+
+    if args.spiking:
+        rb = ReplayBuffer_Spiking(
+            args.buffer_size
+        )
+    else:
+        rb = ReplayBuffer(
+            args.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            handle_timeout_termination=False,
+        )
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
+
+    # create qeues for observations etc. to be able to do sequence learning
+    maxlen = 200
+    observations = deque([],maxlen=maxlen)
+    next_observations = deque([],maxlen=maxlen)
+    reward_que  = deque([],maxlen=maxlen)
+    terminations = deque([],maxlen=maxlen)
+    truncations = deque([],maxlen=maxlen)
+    infos = deque([],maxlen=maxlen)
+    actions_que = deque([],maxlen=maxlen)
+
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
         if global_step < args.learning_starts:
@@ -264,6 +328,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        
+        observations.append(obs)
+        next_observations.append(next_obs)
+        reward_que.append(rewards)
+        actions_que.append(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -273,7 +342,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
                 break
 
-        # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
+        # TRY NOT TO MODIFY: save data to replay buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
         for idx, trunc in enumerate(truncations):
             if trunc:
