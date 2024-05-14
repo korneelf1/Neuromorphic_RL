@@ -6,7 +6,21 @@ import matplotlib.pyplot as plt
 
 import torch
 from tqdm import tqdm
+import wandb
 
+# arguments
+SPIKING = True
+DEVICE = 'cpu'
+SAVE_DIR = '\past_trainings'
+LR = 1e-4
+BETAS = [0.9,0.99]
+GAIN = 0.
+DT = 0.005
+NR_EPISODES = 5e3
+MAX_EPISODE_LENGTH = 500
+NORMALIZE_STEPS = True
+
+wandb.init(project='drone_snn', config={'lr': LR, 'betas': BETAS, 'gain': GAIN, 'dt': DT, 'nr_episodes': NR_EPISODES, 'max_episode_length': MAX_EPISODE_LENGTH, 'normalize_steps': NORMALIZE_STEPS})
 def main():
     Continuous = False
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -14,16 +28,16 @@ def main():
     print('Device in use: ', str(device))
     print('Number of CPUs: ', str(mp.cpu_count()))
     args = {
-        'spiking' : True,
-        'device' : device,
-        'save_dir': '\past_trainings',
-        'lr': 1e-4,
-        'betas': [0.9,0.99],
-        'gain': 0., # add noise to inputs
-        'dt': 0.005,
-        'nr_episodes': 5e3,
-        'max_episode_length':500,
-        'normalize_steps': True, # normalizing based on t1*grad1 + t2*grad2 +f ... + tn*gradn/t1+t2+...+tn
+        'spiking' : SPIKING,
+        'device' : DEVICE,
+        'save_dir': SAVE_DIR,
+        'lr': LR,
+        'betas': BETAS,
+        'gain': GAIN, # add noise to inputs
+        'dt': DT,
+        'nr_episodes': NR_EPISODES,
+        'max_episode_length':MAX_EPISODE_LENGTH,
+        'normalize_steps': NORMALIZE_STEPS, # normalizing based on t1*grad1 + t2*grad2 +f ... + tn*gradn/t1+t2+...+tn
         # 'model': 'small', #small smallest currently not implemented yet
     }
     
