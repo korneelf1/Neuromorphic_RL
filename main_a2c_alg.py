@@ -20,7 +20,7 @@ def main():
         'lr': 1e-4,
         'betas': [0.9,0.99],
         'gain': 0., # add noise to inputs
-        'dt': 0.02,
+        'dt': 0.005,
         'nr_episodes': 5e3,
         'max_episode_length':500,
         'normalize_steps': True, # normalizing based on t1*grad1 + t2*grad2 +f ... + tn*gradn/t1+t2+...+tn
@@ -32,7 +32,7 @@ def main():
         global_model = MasterModel_continuous(**args)
     else:
         global_model = MasterModel(**args)
-        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_syn_lif_1e4_3232.pt'))
+        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_lif_dt005_3232.pt'))
           
 
     global_model.start()

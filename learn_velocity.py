@@ -11,8 +11,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 TRAIN = False
 GATHER_DATA = True
-INTERACTION_LENGTH = 200
-env = SimpleDrone_Discrete(dt=0.02, max_episode_length=500, train_vel=True)
+DT = 1/200
+INTERACTION_LENGTH_SEC = 3 # sec
+INTERACTION_LENGTH = INTERACTION_LENGTH_SEC/DT
+env = SimpleDrone_Discrete(dt=0.001, max_episode_length=500, train_vel=True)
 # env.reset()
 state_size = env.observation_space.shape[0]
 action_size = env.action_space
@@ -20,7 +22,7 @@ action_size = env.action_space
 device =  torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 # device = 'cpu'
 model = ActorCriticSNN_LIF_drone(state_size, action_size, hidden1=32, hidden2=32, inp_min=torch.tensor([0], device=device),inp_max=torch.tensor([2.5], device=device)).to(device)
-model = ActorCriticSNN_LIF_withbuffer(state_size, action_size, hidden1=32, hidden2=32, inp_min=torch.tensor([0], device=device),inp_max=torch.tensor([2.5], device=device), device=device).to(device)
+# model = ActorCriticSNN_LIF_withbuffer(state_size, action_size, hidden1=32, hidden2=32, inp_min=torch.tensor([0], device=device),inp_max=torch.tensor([2.5], device=device), device=device).to(device)
 # model = ActorCriticSNN_LIF_SYN_drone(state_size, action_size).to(device)
 # model = ActorCriticSNN_SYN_LIF_drone(state_size, action_size).to(device)
 
@@ -28,7 +30,7 @@ model = ActorCriticSNN_LIF_withbuffer(state_size, action_size, hidden1=32, hidde
 print('I am learning actions or something i think, velocity is not smooth at all...')
 loss_hist = []
 
-num_iter = int(2e3) # train for x iterations
+num_iter = int(1e0) # train for x iterations
 
 optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
 loss_function = torch.nn.MSELoss()
@@ -103,12 +105,14 @@ vel_tensor = torch.stack(dataset_velocities)
 dataset = TensorDataset(obs_tensor, vel_tensor)
 
 # Create a DataLoader
-batch_size = 128
+batch_size = 256
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
+# load model
+model.load_state_dict(torch.load('drone_snn_vel_lif_dt005_3232.pt'))
 # train model on this dataset
 if GATHER_DATA:
-    for epoch in range(20):
+    for epoch in range(1):
         epoch_avg_loss = 0
         for batch in dataloader:
             # Process the batch
@@ -144,16 +148,19 @@ if GATHER_DATA:
         avg_batch_loss = sum(loss_epoch) / minibatch_counter # calculate average loss p/epoch
         pbar.set_postfix(loss="%.3e" % avg_batch_loss) # print lo_1e6ss p/batch
 
-        print(avg_batch_loss)
+        print('loss for epoch {epoch} is: ', avg_batch_loss)
     # scheduler.step() # update learning rate
 
-torch.save(model.state_dict(), 'drone_snn_vel_syn_lif_1e4_3232_with_buffer.pt')
+dt_str = str(DT).strip('0').strip('.')
+file_name = f'drone_snn_vel_lif_dt{dt_str}_3232.pt'
+# torch.save(model.state_dict(), file_name)
 
 
 
 # plot mem_lst and true_vel_lst to see if the model is learning
-mem_lst  = torch.stack(mem_lst)[:,0].to('cpu').detach().numpy()
-true_vel_lst =  vel.unsqueeze(-1)[:,0].to('cpu').detach().numpy()
+mem_lst  = torch.stack(mem_lst)[:,0].to('cpu').detach()
+true_vel_lst =  vel[:,0].to('cpu').detach()
+print(loss_function(mem_lst, true_vel_lst))
 plt.plot(mem_lst)
 plt.plot(true_vel_lst)
 plt.show()
