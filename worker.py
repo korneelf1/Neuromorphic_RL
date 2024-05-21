@@ -167,6 +167,7 @@ class MasterModel(mp.Process):
 
                 print('Time to failure: ', t)
                 print('Reward: ', reward)
+                wandb.log({'Time to failure': t, 'Reward': reward})
 
             
             
@@ -176,7 +177,7 @@ class MasterModel(mp.Process):
             # unbiased way is t1*grad1 + t2*grad2 + ... / t1 + t2 + ...
             # with mp.Pool(processes=nr_threads) as pool:
             #     results = pool.map(Worker.run, self.workers)
-            # gradients, total_timesteps = zip(*results)
+            # gradients, total_timesteps = zfip(*results)
 
             # # Process the results as needed
             # gradients = [grad for grad in gradients]

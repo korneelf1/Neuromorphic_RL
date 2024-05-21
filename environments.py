@@ -456,19 +456,21 @@ class SimpleDrone_Discrete(gym.Env):
         if abs(z)<0.1:
             touch_ground = True
         
-        reward = 100
-        if z>-.1:
-            # reward += 100/(1+abs(z))
-            reward -= z*100
+        # reward = 100
+        # if z>.1:
+        #     # reward += 100/(1+abs(z))
+        #     reward -= z*10
         
         if vz<0:
-            distance_from_target_factor = (2.5-z)/2.5
-            # reward += 50*np.exp(-abs(vz)*5)
+            # distance_from_target_factor = (2.5-z)/2.5
 
-            reward += (vz*200)*distance_from_target_factor + (1-distance_from_target_factor)*200*-vz
+            # reward += (vz*200)*distance_from_target_factor + (1-distance_from_target_factor)*200*-vz
+            # reward += 1/np.abs(z/vz+1.504+1e-6) # 1.504 is the ratio of height to velocity if path of hieght is described by (1/2)^(t-1.3)
+            reward += 5*(1.5**(.5*z/(vz-0.2)+5*(vz-.11)))
+
         else:
             # reward -= 100*np.exp(abs(vz)*5e-1) # factor 100 so 0 reward if upward speed at height 0
-            reward -= (vz+1) *100
+            reward -= (vz) *10
 
         if z < -.1:
             reward = 0 
@@ -478,6 +480,7 @@ class SimpleDrone_Discrete(gym.Env):
             reward += 100
             print('Landed')
             # print(reward)
+            
         return reward
 
         
@@ -602,7 +605,6 @@ class SimpleDrone_Discrete(gym.Env):
         self.accelerations.append(acceleration)
         acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-index:-1])  if len(self.accelerations)>index else acceleration
 
-        print(acceleration_low_passed)
         self._agent_velocity += acceleration_low_passed*self.dt
 
         self._agent_location += self._agent_velocity*self.dt

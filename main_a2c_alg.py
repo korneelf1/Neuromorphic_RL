@@ -10,17 +10,16 @@ import wandb
 
 # arguments
 SPIKING = True
-DEVICE = 'cpu'
 SAVE_DIR = '\past_trainings'
 LR = 1e-4
 BETAS = [0.9,0.99]
 GAIN = 0.
 DT = 0.005
-NR_EPISODES = 5e3
-MAX_EPISODE_LENGTH = 500
+NR_EPISODES = 15e3
+MAX_EPISODE_LENGTH = 1000
 NORMALIZE_STEPS = True
 
-wandb.init(project='drone_snn', config={'lr': LR, 'betas': BETAS, 'gain': GAIN, 'dt': DT, 'nr_episodes': NR_EPISODES, 'max_episode_length': MAX_EPISODE_LENGTH, 'normalize_steps': NORMALIZE_STEPS})
+wandb.init(project='drone_snn', config={'lr': LR, 'spiking':SPIKING, 'betas': BETAS, 'gain': GAIN, 'dt': DT, 'nr_episodes': NR_EPISODES, 'max_episode_length': MAX_EPISODE_LENGTH, 'normalize_steps': NORMALIZE_STEPS})
 def main():
     Continuous = False
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -29,7 +28,7 @@ def main():
     print('Number of CPUs: ', str(mp.cpu_count()))
     args = {
         'spiking' : SPIKING,
-        'device' : DEVICE,
+        'device' : device,
         'save_dir': SAVE_DIR,
         'lr': LR,
         'betas': BETAS,
@@ -46,7 +45,7 @@ def main():
         global_model = MasterModel_continuous(**args)
     else:
         global_model = MasterModel(**args)
-        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_lif_dt005_3232.pt'))
+        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_lif_dt005_3232.pt',map_location=torch.device('cpu')))
           
 
     global_model.start()

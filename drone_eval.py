@@ -18,7 +18,7 @@ global_model = ActorCriticSNN_LIF_Smallest(state_size, action_size,
                                                    bias=False,nr_passes = 1)
 global_model = ActorCriticSNN_LIF_drone(state_size, action_size, hidden1=32, hidden2=32)
 
-global_model.load_state_dict(torch.load('drone_snn_pos_45_success.pt'))
+global_model.load_state_dict(torch.load('drone_snn_pos.pt'))
 # print(global_model.state_dict)
 torch.set_printoptions(threshold=np.inf)
 
@@ -49,30 +49,27 @@ success = 0
 high = 0
 spikes1 = []
 spikes2 = []
-inputs = torch.tensor([1.1000, 1.0999, 1.1001, 1.1004, 1.1007, 1.1009, 1.1009, 1.1009, 1.1009,
-         1.1009, 1.1009, 1.1009, 1.1009, 1.1009, 1.1009, 1.1008, 1.1007, 1.1007,
-         1.1006, 1.1006])
+states = []
 outputs = []
 j = 0
 for i in range(int(iterations)):
     global_model.init_mem()
     state, _ = env.reset()
     done = False
-    while not done and j < 20:
+    while not done:
         
         state = torch.from_numpy(state)
-        state = inputs[j]
+        states.append(state)
 # get network outputs on given state
         value, policy,_ = global_model(state.unsqueeze(0))
-        outputs.append(policy)
-            # find probabilities of certain actions
+
+        # find probabilities of certain actions
         prob = F.softmax(policy, dim=-1)
 
 
-
-            # choose the action and detach from computational graph
+        # choose the action and detach from computational graph
         action = prob.multinomial(num_samples=1).detach() # find max of this and make sure it is not part of optimization
-        
+        outputs.append(action.item())
         state, reward, done, truncated, info = env.step(action.item())
 
         if done:
@@ -90,8 +87,20 @@ for i in range(int(iterations)):
     # print(torch.stack(inputs).transpose(1,0))
     print('outputs:')
     print(outputs)  
+states = torch.stack(states)
 
-''' 
+#plot two plots one with states over timesteps and one with outputs over timesteps
+import matplotlib.pyplot as plt
+plt.figure()
+plt.subplot(2,1,1)
+plt.plot(states, label='altitude over timestep', color='blue')
+plt.subplot(2,1,2)
+plt.plot(outputs, label='actions over timestep', color='red')
+
+plt.legend()
+plt.show()
+
+'''
 print('success rate:', success/iterations) 
 print(success/iterations)
 def pruning(all_spikes, hidden_size=32):    
