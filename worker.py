@@ -18,6 +18,7 @@ from tqdm import tqdm
 from environments import SimpleDrone_Discrete
 # import actor-critics
 from actor_critics import ActorCriticSNN_LIF_Small, ActorCritic_ANN,ActorCriticSNN_LIF_Smallest, ActorCritic_ANN_Smallest, ActorCritic_ANN_Cont, ActorCriticSNN_LIF_Smallest_Cont,ActorCriticSNN_LIF_drone
+import wandb
 
 def add_noise(state, gain=0.1):
     noise = np.random.normal(0, gain, state.shape)
@@ -80,6 +81,7 @@ class MasterModel(mp.Process):
             #                                        bias=False,nr_passes = 1).to(self.device)  # global network
         else:
             self.global_model = ActorCritic_ANN(self.state_size, self.action_size).to(self.device)  # global network
+        wandb.watch(self.global_model)
         # shared memory for gradients:
         # self.gradient_acc= torch.zeros(self.global_model.parameters()).share_memory()
         self.opt = torch.optim.Adam(self.global_model.parameters(), lr = args['lr'], betas= args['betas'])

@@ -555,11 +555,13 @@ class SimpleDrone_Discrete(gym.Env):
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
         self._agent_location = np.random.randint(5,20)*.1
-        if self.train_vel:
-            self._agent_velocity = np.random.randint(20,50)*.1
+        
         # self._agent_location = 2
         # self._agent_velocity = np.random.randint(-5,5)*.1
         self._agent_velocity = np.random.randint(-3,3)*.1
+        if self.train_vel:
+            self._agent_velocity = 0
+            self._agent_location = np.random.randint(10,20)*.1
         # self._agent_velocity = 0
         self.reward = 0
 
@@ -594,10 +596,13 @@ class SimpleDrone_Discrete(gym.Env):
         truncated = False
         self.thrust_last = action
 
+        low_pass_len = .1 # sec
+        index = int(low_pass_len//self.dt)
         acceleration = self.action_to_acc(action) # learn wrt hover or wrt zero acc
         self.accelerations.append(acceleration)
-        acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-10:-1])  if len(self.accelerations)>10 else acceleration
+        acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-index:-1])  if len(self.accelerations)>index else acceleration
 
+        print(acceleration_low_passed)
         self._agent_velocity += acceleration_low_passed*self.dt
 
         self._agent_location += self._agent_velocity*self.dt
