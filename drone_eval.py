@@ -16,9 +16,9 @@ global_model = ActorCriticSNN_LIF_Smallest(state_size, action_size,
                                                    inp_min = torch.tensor([0, -.5]), 
                                                    inp_max=  torch.tensor([2.5, .5]), 
                                                    bias=False,nr_passes = 1)
-global_model = ActorCriticSNN_LIF_drone(state_size, action_size, hidden1=64, hidden2=64)
+global_model = ActorCriticSNN_LIF_drone(state_size, action_size, hidden1=32, hidden2=32)
 
-global_model.load_state_dict(torch.load('drone_snn_pos.pt'))
+global_model.load_state_dict(torch.load('DSQN/drone_snn_vel_syn_lif_1e4_3232.pt'))
 # print(global_model.state_dict)
 torch.set_printoptions(threshold=np.inf)
 
@@ -34,12 +34,12 @@ torch.set_printoptions(threshold=np.inf)
 # print(global_model.lin1.bias)
 # print('lin2 weights:')
 # print(global_model.lin2.weight)
-print('lin2 bias:')
-print(global_model.lin2.bias)
-print('actor weights:')
-print(global_model.actor_linear.weight)
-print('actor bias:')
-print(global_model.actor_linear.bias)
+# print('lin2 bias:')
+# print(global_model.lin2.bias)
+# print('actor weights:')
+# print(global_model.actor_linear.weight)
+# print('actor bias:')
+# print(global_model.actor_linear.bias)
 
 
 
@@ -53,18 +53,20 @@ inputs = torch.tensor([1.1000, 1.0999, 1.1001, 1.1004, 1.1007, 1.1009, 1.1009, 1
          1.1009, 1.1009, 1.1009, 1.1009, 1.1009, 1.1009, 1.1008, 1.1007, 1.1007,
          1.1006, 1.1006])
 outputs = []
+positions = []
 j = 0
 for i in range(int(iterations)):
     global_model.init_mem()
     state, _ = env.reset()
     done = False
-    while not done and j < 20:
+    while not done:
         
         state = torch.from_numpy(state)
-        state = inputs[j]
+        positions.append(state)
+        # state = inputs[j]
 # get network outputs on given state
         value, policy,_ = global_model(state.unsqueeze(0))
-        outputs.append(policy)
+        
             # find probabilities of certain actions
         prob = F.softmax(policy, dim=-1)
 
@@ -72,7 +74,7 @@ for i in range(int(iterations)):
 
             # choose the action and detach from computational graph
         action = prob.multinomial(num_samples=1).detach() # find max of this and make sure it is not part of optimization
-        
+        outputs.append(action)
         state, reward, done, truncated, info = env.step(action.item())
 
         if done:
@@ -88,9 +90,15 @@ for i in range(int(iterations)):
     spikes2.append(torch.stack(global_model.spk1_rec) )
     # print('inputs:')
     # print(torch.stack(inputs).transpose(1,0))
-    print('outputs:')
-    print(outputs)  
-
+    # print('outputs:')
+    print(positions)  
+import matplotlib.pyplot as plt
+plt.figure()
+plt.subplot(2,1,1)
+plt.plot(torch.stack(positions).detach().numpy())
+plt.subplot(2,1,2)
+plt.scatter(range(len(outputs)),torch.stack(outputs).detach().numpy())
+plt.show()
 ''' 
 print('success rate:', success/iterations) 
 print(success/iterations)

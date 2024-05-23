@@ -1,9 +1,11 @@
 import gym
 from gym import spaces
-import pygame
+# import pygame
 import numpy as np
+import torch
+import matplotlib.pyplot as plt
 
-
+'''
 class GridWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
@@ -179,15 +181,17 @@ class GridWorldEnv(gym.Env):
 #     id='gym_examples/GridWorld-v0',
 #     entry_point='gym_examples.envs:GridWorldEnv',
 #     max_episode_steps=300,
-# )
-            
+# )'''  
+
+
 class Discret():
     def __init__(self,val) -> None:
         self.n = val
 
 
+
 class SimpleDrone_Discrete(gym.Env):
-    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.025, max_episode_length = 200, train_vel = False, optic_flow=False):
+    def __init__(self, render_mode=None, mass = .5, landing_velocity=0.4, dt = 0.02, max_episode_length = 200, train_vel = False, optic_flow=False):
         """
         optic_flow if true return optic flow else height"""
         self.mass = mass
@@ -206,7 +210,7 @@ class SimpleDrone_Discrete(gym.Env):
 
         self.action_space = gym.spaces.Discrete(7)
         # self.observation_space = spaces.Box(low=np.array([[0],[-.5]]), high=np.array([[2.2],[.5]]), shape=(2,1))
-        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.2]]), shape=(1,1))
+        self.observation_space = spaces.Box(low=np.array([[0]]), high=np.array([[2.5]]), shape=(1,1))
         self.train_vel = train_vel
 
         self.max_thrust = 5
@@ -347,11 +351,13 @@ class SimpleDrone_Discrete(gym.Env):
     def reset(self, seed=None, options=None):
         # self._agent_location = np.random.randint(2,10)
         self._agent_location = np.random.randint(5,20)*.1
-        if self.train_vel:
-            self._agent_velocity = np.random.randint(20,50)*.1
+        
         # self._agent_location = 2
         # self._agent_velocity = np.random.randint(-5,5)*.1
         self._agent_velocity = np.random.randint(-3,3)*.1
+        if self.train_vel:
+            self._agent_velocity = 0
+            self._agent_location = np.random.randint(10,20)*.1
         # self._agent_velocity = 0
         self.reward = 0
 
@@ -365,6 +371,7 @@ class SimpleDrone_Discrete(gym.Env):
         self.thrust_last = 0
         self.done = False
 
+        self._agent_location = 0.8
         
         return self._get_obs(),{}
     
@@ -372,7 +379,7 @@ class SimpleDrone_Discrete(gym.Env):
     def action_to_acc(self, action, hover = True):
         '''Converts discrete action to thrust value'''
         
-        return self.accelerations_actions[action]
+        return self.accelerations_actions[action] 
 
 
     def step(self, action):
@@ -386,11 +393,13 @@ class SimpleDrone_Discrete(gym.Env):
         truncated = False
         self.thrust_last = action
 
+        low_pass_len = .1 # sec
+        index = int(low_pass_len//self.dt)
         acceleration = self.action_to_acc(action) # learn wrt hover or wrt zero acc
         self.accelerations.append(acceleration)
-        acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-10:-1])  if len(self.accelerations)>10 else acceleration
+        acceleration_low_passed = 0.4*acceleration + 0.6*np.mean(self.accelerations[-index:-1])  if len(self.accelerations)>index else acceleration
 
-        self._agent_velocity += acceleration_low_passed*self.dt
+        self._agent_velocity += (acceleration_low_passed)*self.dt
 
         self._agent_location += self._agent_velocity*self.dt
 
@@ -472,37 +481,3 @@ class SimpleDrone_Discrete(gym.Env):
 
     def close(self):
         pass
-
-
-class SimpleGrid():
-
-    def __init__(self, size = 3, start_loc = [0,0], target = [2,2]):
-        self.size = size
-        self.field = np.zeros((size,size))
-        self.field[target[0], target[1]] = 1
-        self.state = np.array([*start_loc,*target])
-
-        self.actions = {'0' : [0,-1],
-                        '1' : [0,1],
-                        '2' : [-1,0],
-                        '3' : [1,0]}
-        self.action_space = Discret(4)
-        self.time_tracker = 0
-    def reset(self):
-        self.time_tracker = 0
-        self.state = np.array([0,0,2,2])
-        return self.state, []
-    
-    def step(self,action):
-        dir = self.actions[str(action)]
-
-        new_x = min(max(0,self.state[0]+ dir[0]), self.size-1)
-        new_y = min(max(0,self.state[1]+ dir[1]), self.size-1)
-        self.time_tracker +=1
-        terminal = False
-        reward = -self.time_tracker
-        if (new_x == self.size-1) & (new_y == self.size-1):
-            reward += 200 
-            terminal = True
-        self.state = np.array([new_x,new_y,2,2])
-        return self.state, reward, terminal, 0,0
