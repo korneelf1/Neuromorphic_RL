@@ -14,9 +14,9 @@ SAVE_DIR = '\past_trainings'
 LR = 1e-4
 BETAS = [0.9,0.99]
 GAIN = 0.
-DT = 0.005
-NR_EPISODES = 15e3
-MAX_EPISODE_LENGTH = 1000
+DT = 0.02
+NR_EPISODES = 5e3
+MAX_EPISODE_LENGTH = 300
 NORMALIZE_STEPS = True
 
 wandb.init(project='drone_snn', config={'lr': LR, 'spiking':SPIKING, 'betas': BETAS, 'gain': GAIN, 'dt': DT, 'nr_episodes': NR_EPISODES, 'max_episode_length': MAX_EPISODE_LENGTH, 'normalize_steps': NORMALIZE_STEPS})
@@ -45,7 +45,7 @@ def main():
         global_model = MasterModel_continuous(**args)
     else:
         global_model = MasterModel(**args)
-        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_lif_dt005_3232.pt',map_location=torch.device('cpu')))
+        global_model.global_model.load_state_dict(torch.load('drone_snn_vel_syn_lif_1e4_3232.pt',map_location=torch.device('cpu')))
           
 
     global_model.start()
@@ -54,7 +54,9 @@ def main():
     global_model.run()
     print('global model finished')
     global_model.join()
-    global_model.save_model(path='drone_snn_pos.pt')
+    global_model.save_model(path=f'drone_snn_pos_sparse_reward.pt')
+    # plt.figure()
+    
 
     # plt.plot(list(range(len(global_model.episode_times))), global_model.episode_times)
     # plt.savefig('drone_snn_pos.png') # save the figure with name SNN_246_200Hz_100e3

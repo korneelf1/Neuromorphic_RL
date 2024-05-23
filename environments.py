@@ -456,7 +456,7 @@ class SimpleDrone_Discrete(gym.Env):
         if abs(z)<0.1:
             touch_ground = True
         
-        # reward = 100
+        reward = 0
         # if z>.1:
         #     # reward += 100/(1+abs(z))
         #     reward -= z*10
@@ -474,13 +474,17 @@ class SimpleDrone_Discrete(gym.Env):
 
         if z < -.1:
             reward = 0 
-        
+        reward = 0
         # landing
         if touch_ground and 0 > (vz) > -self.landing_velocity:
-            reward += 100
+            reward += 1
             print('Landed')
+            return reward
             # print(reward)
-            
+        if self.counter>= self.max_episode_length-1:
+            done = True
+            reward -= 1
+
         return reward
 
         

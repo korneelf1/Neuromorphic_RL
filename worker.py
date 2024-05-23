@@ -133,7 +133,7 @@ class MasterModel(mp.Process):
     def run(self):
         EVALUATION_INTERVAL = 500
         nr_threads = mp.cpu_count()
-        nr_threads = 4
+        nr_threads = 8
         print('\nCreating workers...')
         self.workers = [Worker(global_model=self.global_model, global_counter=self.global_episode, game_name=self.game_name,
                         idx=i, nr_workers=nr_threads, **self.args) for i in range(nr_threads)]
@@ -167,7 +167,7 @@ class MasterModel(mp.Process):
 
                 print('Time to failure: ', t)
                 print('Reward: ', reward)
-                wandb.log({'Time to failure': t, 'Reward': reward})
+                # wandb.log({'Time to failure': t, 'Reward': reward})
 
             
             
@@ -237,6 +237,7 @@ class Worker(mp.Process):
         super(Worker, self).__init__(group=None)
         Worker.instance_count += 1
         print('Creating worker nr: ', Worker.instance_count)
+        self.worker_idx = Worker.instance_count
         self.global_model = global_model
 
         self.game_name = game_name
@@ -336,6 +337,7 @@ class Worker(mp.Process):
             values.append(value)
             log_probs.append(log_prob)
             rewards.append(reward)
+            wandb.log({f'Worker_{self.worker_idx}_reward': reward})
             # velocities.append(velocity) # new
 
             
